@@ -21,7 +21,6 @@ MHI_H=$(MHI)/Include
 SRC = /Src/
 BIN = Bin/
 OBJ = Obj/
-#OBJSAUD = $(OBJ)timing.o $(OBJ)debug.o $(OBJ)vs1053.o $(OBJ)fncasm.o $(OBJ)spi.o $(OBJ)config_file.o
 OBJSAUD = $(OBJ)timing.o $(OBJ)debug.o $(OBJ)vs1053.o
 OBJSLIB = $(OBJ)libdev.o $(OBJ)spiaudiolib.o 
 OBJSBIN = $(OBJ)$(TESTBIN).o
@@ -69,11 +68,5 @@ $(OBJ)vs1053.o: $(SRC)vs1053.c
 $(OBJ)libdev.o: $(SRC)libdev.c
 
 $(OBJ)$(TESTBIN).o: $(SRC)$(TESTBIN).c
-
-#$(OBJ)fncasm.o: $(SRC)fncasm.a
-
-#$(OBJ)spi.o: $(SRC)spi.c 
-
-#$(OBJ)config_file.o: $(SRC)config_file.c 
 
 $(OBJ)$(LIBTESTBIN).o: $(SRC)$(LIBTESTBIN).c
