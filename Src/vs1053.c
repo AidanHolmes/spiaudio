@@ -578,6 +578,10 @@ __inline void removeAllChunks(struct VSData *dat)
 	while ( n = RemHead((struct List *)&dat->freeList) ){
 		FreeVec(n);
 	}
+	if (dat->currentChunk){
+		FreeVec(dat->currentChunk);
+		dat->currentChunk = NULL ;
+	}
 }
 
 /****** vs1053/removeChunk *****************************************************
