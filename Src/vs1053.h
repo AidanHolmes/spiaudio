@@ -43,14 +43,13 @@ struct VSChunk
 struct VSData
 {
 	struct IORequest *tmr;
-	struct IORequest *callingTmr;
 	struct Task *drvTask;
 	struct Task *callingTask; // temp for start up
 	struct MsgPort *drvPort;
 	struct SignalSemaphore sem;
 	struct VSChunk *currentChunk;
 	struct ClockportConfig config;
-	BYTE callingSig;
+	BYTE callingSig; // temp for start up
 	BYTE sig;
 	BYTE sigTerm;
 	BOOL initspi;

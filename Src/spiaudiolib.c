@@ -56,8 +56,6 @@ void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base)
 {
 	struct VSData *dat = NULL ;
 	if (base->libData){
-		dat = (struct VSData*)base->libData;
-		
 		destroyVS1053((struct VSData*)base->libData); // This is done in worker task
 		base->libData = NULL;
 	}

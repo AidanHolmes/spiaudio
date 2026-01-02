@@ -125,6 +125,7 @@ static void __saveds workerTask(void)
 			}
 			sigs |= 1 << dat->sig; // Pretend we had a signal for VS1053
 		}else{
+			//D(DebugPrint(DEBUG_LEVEL, "workerTask: waiting - dat->status 0x%04X\n", dat->status));
 			// Not playing or stopping, so chill on normal received signals
 			sigs = timerWaitTO(dat->tmr, 1,0,sigmask) ; // 1 sec idle
 		}
@@ -192,6 +193,7 @@ close:
 	
 	if (dat->initspi){
 		spi_shutdown();
+		dat->initspi = FALSE;
 	}
 	if (dat->drvPort){
 		DeleteMsgPort(dat->drvPort);
@@ -210,10 +212,8 @@ close:
 		dat->tmr = NULL;
 	}
 	
-	// Tell calling task/process that the worker task has completed
-	if (dat->callingTask && dat->callingSig >= 0){
-		Signal (dat->callingTask, 1 << dat->callingSig);
-	}
+	removeAllChunks(dat);
+	FreeVec(dat); // memory can only be cleanly removed here
 }
 
 __inline static BOOL dreq(void)
@@ -993,6 +993,7 @@ struct VSData* initVS1053(void)
 	struct VSData *dat = NULL ;
 	BOOL success = FALSE ;
 	UWORD reg = 0;
+	struct IORequest *callingTmr = NULL;
 	
 	dat = (struct VSData*)AllocVec(sizeof(struct VSData), MEMF_ANY | MEMF_CLEAR);
 	if (!dat){
@@ -1003,7 +1004,7 @@ struct VSData* initVS1053(void)
 	dat->sig = -1;
 	dat->initspi = FALSE ;
 	
-	if (!(dat->callingTmr = openTimer())){
+	if (!(callingTmr = openTimer())){
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: couldn't open timer\n"));
 		goto close;
 	}
@@ -1019,7 +1020,7 @@ struct VSData* initVS1053(void)
 	dat->callingTask = FindTask(NULL);
 	
 	dat->drvTask = createWorkerTask(dat, "SPIAudio", 0, workerTask, 4096, dat);
-	if (!timerWaitTO(dat->callingTmr, 5, 0, 1 << dat->callingSig)){
+	if (!timerWaitTO(callingTmr, 5, 0, 1 << dat->callingSig)){
 		// Task must have failed
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: no task signal received to confirm worker running\n"));
 		goto close;
@@ -1028,19 +1029,6 @@ struct VSData* initVS1053(void)
 	if (!dat->drvPort){ // port is NULL if worker had any problems starting
 		goto close;
 	}
-	
-	//dat->iterWait = timer_get_tick_count(); // Not used
-	
-#ifdef _DEBUG
-	//D(DebugPrint(DEBUG_LEVEL,"initVS1053: Preinit REG_MODE set to 0x%04X\n", readRegister(REG_MODE)));
-	//D(DebugPrint(DEBUG_LEVEL,"initVS1053: Preinit REG_STATUS set to 0x%04X\n", readRegister(REG_STATUS)));
-#endif
-
-	// issue reset
-	// DO NOT RESET IN CALLING PROCESS - IT DOESN'T RECEIVE SIGNALS only call in worker task
-	//if (!resetVS1053(dat)){
-	//	goto close;
-	//}
 	
 	//D(DebugPrint(DEBUG_LEVEL,"initVS1053: Completed init, REG_MODE set to 0x%04X\n", readRegister(REG_MODE)));
 	
@@ -1060,6 +1048,14 @@ struct VSData* initVS1053(void)
 
 	success = TRUE ;
 close:
+	if (dat->callingSig >= 0){ // This is just temporary to sync worker task start-up
+		FreeSignal(dat->callingSig);
+		dat->callingSig = -1;
+	}
+	dat->callingTask = NULL ; // Remove reference after startup
+	if (callingTmr){
+		timerCloseTimer(callingTmr);
+	}
 	if (!success){
 		if (dat){
 			destroyVS1053(dat);
@@ -1073,19 +1069,11 @@ void destroyVS1053(struct VSData *dat)
 {
 	if (dat){
 		if (dat->drvTask && dat->sigTerm >= 0){
-			// Cleanly shutdown task
+			// Shutdown task
 			Signal(dat->drvTask, 1 << dat->sigTerm); // Tell worker task to stop
-			timerWaitTO(dat->callingTmr, 10, 0, 1 << dat->callingSig); // return doesn't matter, still destroy allocations
+		}else{
+			// Cannot signal, so just free here
+			FreeVec(dat);
 		}
-		removeAllChunks(dat);
-		if (dat->callingTmr){
-			timerCloseTimer(dat->callingTmr);
-			dat->callingTmr = NULL;
-		}
-		if (dat->callingSig >=0){
-			FreeSignal(dat->callingSig);
-			dat->callingSig = -1;
-		}
-		FreeVec(dat);
 	}
 }
