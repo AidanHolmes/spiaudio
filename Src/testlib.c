@@ -26,7 +26,7 @@ int main (int argc, char **argv)
 	APTR handle = NULL ;
 	BYTE mySig = -1;
 	
-	if (!(MHIBase = OpenLibrary("mhispiaudio.library", 0))){
+	if (!(MHIBase = OpenLibrary("LIBS:MHI/mhispiaudio.library", 0))){
 		printf("Cannot open MHI library\n");
 		return 0;
 	}

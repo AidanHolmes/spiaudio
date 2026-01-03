@@ -21,17 +21,15 @@
 
 struct UserMHI{
 	struct Task *task;
-	struct IOStdReq std;
+	struct IOStdReq *std;
+	struct VSParameterData *pdata;
 	ULONG signal;
 	UBYTE status;
-	UBYTE laststatus;
 	UBYTE volume;
 	UBYTE panning;
 	UBYTE mixing;
-	UBYTE prefactor;
 	UBYTE bass;
 	UBYTE treble;
-	UBYTE mid;
 };
 
 
@@ -70,19 +68,43 @@ void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base)
 
 APTR    __saveds __asm MHIAllocDecoder (register __a0 struct Task *task , register __d0 ULONG mhisignal, register __a6 struct LibDevBase *base)
 {
+	BOOL completedOK = FALSE ;
 	struct UserMHI *usr = NULL;
-	if ((usr=AllocVec(sizeof(struct UserMHI), MEMF_ANY | MEMF_CLEAR))){
-		usr->task = task;
-		usr->signal = mhisignal;
-		memset(&usr->std, 0, sizeof(struct IOStdReq));
-		if (!(usr->std.io_Message.mn_ReplyPort = CreateMsgPort())){
-			FreeVec(usr);
-			usr = NULL ;
-		}else{
-			usr->std.io_Message.mn_Length = sizeof(struct IOStdReq) ;
-			usr->std.io_Message.mn_Node.ln_Type = NT_MESSAGE;
-			usr->std.io_Command = 0;
+	if (!(usr=AllocVec(sizeof(struct UserMHI), MEMF_ANY | MEMF_CLEAR))){
+		goto end;
+	}
+	if (!(usr->std = AllocVec(sizeof(struct IOStdReq), MEMF_PUBLIC | MEMF_CLEAR))){
+		goto end;
+	}
+	usr->task = task;
+	usr->signal = mhisignal;
+
+	if (!(usr->std->io_Message.mn_ReplyPort = CreateMsgPort())){
+		goto end;
+	}
+
+	usr->std->io_Message.mn_Length = sizeof(struct IOStdReq) ;
+	usr->std->io_Message.mn_Node.ln_Type = NT_MESSAGE;
+	usr->std->io_Command = 0;
+
+	if (!(usr->pdata = (struct VSParameterData*)AllocVec(sizeof(struct VSParameterData), MEMF_PUBLIC | MEMF_CLEAR))){
+		goto end;
+	}
+
+	completedOK = TRUE ;
+end:
+	if (!completedOK && usr){
+		if (usr->std){
+			if (usr->std->io_Message.mn_ReplyPort ){
+				DeleteMsgPort(usr->std->io_Message.mn_ReplyPort);
+			}
+			if (usr->pdata){
+				FreeVec(usr->pdata);
+			}
+			FreeVec(usr->std);
 		}
+		FreeVec(usr);
+		usr = NULL;
 	}
 	return usr;
 }
@@ -91,7 +113,8 @@ VOID    __saveds __asm MHIFreeDecoder  (register __a3 APTR handle, register __a6
 {
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	if (handle){
-		DeleteMsgPort(usr->std.io_Message.mn_ReplyPort);
+		DeleteMsgPort(usr->std->io_Message.mn_ReplyPort);
+		FreeVec(usr->pdata);
 		FreeVec(handle);
 	}
 }
@@ -134,9 +157,11 @@ VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSData *dat = (struct VSData*)base->libData;
 	
-	usr->std.io_Command = CMD_START;
-	PutMsg(dat->drvPort, (struct Message *)&usr->std);
-	WaitPort(usr->std.io_Message.mn_ReplyPort);	
+	D(DebugPrint(DEBUG_LEVEL, "MHIPlay: called\n"));
+	usr->std->io_Command = CMD_START;
+	PutMsg(dat->drvPort, (struct Message *)usr->std);
+	WaitPort(usr->std->io_Message.mn_ReplyPort);
+	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
 	
 	((struct UserMHI*)handle)->status = MHIF_PLAYING;
 }
@@ -148,9 +173,12 @@ VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSChunk *buf = NULL ;
 	
-	usr->std.io_Command = CMD_RESET;
-	PutMsg(dat->drvPort, (struct Message *)&usr->std);
-	WaitPort(usr->std.io_Message.mn_ReplyPort);	
+	D(DebugPrint(DEBUG_LEVEL, "MHIStop: called\n"));
+	
+	usr->std->io_Command = CMD_RESET;
+	PutMsg(dat->drvPort, (struct Message *)usr->std);
+	WaitPort(usr->std->io_Message.mn_ReplyPort);
+	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
 
 	((struct UserMHI*)handle)->status = MHIF_STOPPED;
 	ObtainSemaphore(&dat->sem);
@@ -163,13 +191,16 @@ VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSData *dat = (struct VSData*)base->libData;
 	
+	D(DebugPrint(DEBUG_LEVEL, "MHIPause: called\n"));
+	
 	if (((struct UserMHI*)handle)->status == MHIF_PAUSED){
-		usr->std.io_Command = CMD_START; // resume from paused
+		usr->std->io_Command = CMD_START; // resume from paused
 	}else{
-		usr->std.io_Command = CMD_STOP; // stop/pause playback
+		usr->std->io_Command = CMD_STOP; // stop/pause playback
 	}
-	PutMsg(dat->drvPort, (struct Message *)&usr->std);
-	WaitPort(usr->std.io_Message.mn_ReplyPort);	
+	PutMsg(dat->drvPort, (struct Message *)usr->std);
+	WaitPort(usr->std->io_Message.mn_ReplyPort);	
+	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
 	
 	if(((struct UserMHI*)handle)->status == MHIF_PAUSED){
 		((struct UserMHI*)handle)->status = MHIF_PLAYING;
@@ -183,114 +214,125 @@ VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6
 ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6 struct LibDevBase *base)
 {
 		switch (query) {
-		case MHIQ_MPEG1: case MHIQ_MPEG2: case MHIQ_MPEG25:
-			return MHIF_SUPPORTED;
-			break;
-		
+		// Supported encoding
+		case MHIQ_MPEG1: 
+		case MHIQ_MPEG2: 
+		case MHIQ_MPEG25: 
 		case MHIQ_MPEG4:
-			return MHIF_UNSUPPORTED;
-			break;
+			return MHIF_SUPPORTED;
 			
+		// Supported layers
 		case MHIQ_LAYER1:
-			return MHIF_UNSUPPORTED;
-			break;
-			
-		case MHIQ_LAYER2: case MHIQ_LAYER3:
+		case MHIQ_LAYER2:
+#if VS1053_AUDIO_MPEG12
 			return MHIF_SUPPORTED;
-			break;
+#else
+			return MHIF_UNSUPPORTED;
+#endif
 			
+		case MHIQ_LAYER3:
+			return MHIF_SUPPORTED;
+			
+		// Supported features
 		case MHIQ_VARIABLE_BITRATE:
-			return MHIF_UNSUPPORTED;
-			break;
-		
-		//case MHIQ_JOINT_STERIO:
-		//	return MHIF_SUPPORTED;
-		//	break;
-			
-		case MHIQ_BASS_CONTROL: case MHIQ_TREBLE_CONTROL: case MHIQ_PREFACTOR_CONTROL:
+		case MHIQ_JOINT_STEREO:
+		case MHIQ_BASS_CONTROL: 
+		case MHIQ_TREBLE_CONTROL:
+		case MHIQ_VOLUME_CONTROL: 
+		case MHIQ_PANNING_CONTROL:
+		case MHIQ_CROSSMIXING:
 			return MHIF_SUPPORTED;
-			break;
 			
+		// Unsupported features
+		case MHIQ_PREFACTOR_CONTROL:		
 		case MHIQ_MID_CONTROL:
 			return MHIF_UNSUPPORTED;
-			
-		case MHIQ_VOLUME_CONTROL: case MHIQ_PANNING_CONTROL:
-			return MHIF_SUPPORTED;
-			break;
 
-		case MHIQ_CROSSMIXING:
-			return MHIF_UNSUPPORTED;
-			
+		// Other query values
 		case MHIQ_IS_HARDWARE:
 			return MHIF_TRUE;
-			break;
 
-		case MHIQ_IS_68K: case MHIQ_IS_PPC:
+		case MHIQ_IS_68K: 
+		case MHIQ_IS_PPC:
 			return MHIF_FALSE;
-			break;
 			
 		case MHIQ_DECODER_NAME:
-			return (ULONG)"Spider Audio";
-			break;
+			return (ULONG)"SPIder VS1053";
 
 		case MHIQ_DECODER_VERSION:
 			return (ULONG)"1";
-			break;
 			
 		case MHIQ_AUTHOR:
-			return (ULONG)"Paul Qureshi, Thomas Wenzel";
-			break;
+			return (ULONG)"Aidan Holmes";
 			
 		default:
 			return MHIF_UNSUPPORTED;
-			break;			
 	}
 }
 
 VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0 UWORD param, register __d1 ULONG value, register __a6 struct LibDevBase *base)
 {
-	LONG calc;
-	UBYTE r;
-	UBYTE l;
-
+	struct UserMHI *usr = (struct UserMHI*)handle;
+	struct VSData *dat = (struct VSData*)base->libData;
+	
+	usr->std->io_Command = CMD_VSAUDIO_PARAMETER;
+	usr->pdata->value = value ;
+	usr->std->io_Length = sizeof(struct VSParameterData);
+	usr->std->io_Data = usr->pdata; // needs to be public memory to share with driver
+	
 	switch (param) {
 		case MHIP_VOLUME:
-			if(value != ((struct UserMHI*)handle)->volume) {
-
+			if(value != usr->volume) {
+				usr->pdata->parameter = VS_PARAM_VOL;
+				PutMsg(dat->drvPort, (struct Message *)usr->std);
+				WaitPort(usr->std->io_Message.mn_ReplyPort);
+				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				usr->volume = usr->pdata->actual;
 			}
 
 			break;
-		
+	
 		case MHIP_PANNING:
-			if(value != ((struct UserMHI*)handle)->panning) {
-
+			if(value != usr->panning) {
+				usr->pdata->parameter = VS_PARAM_PAN;
+				PutMsg(dat->drvPort, (struct Message *)usr->std);
+				WaitPort(usr->std->io_Message.mn_ReplyPort);
+				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				usr->panning = usr->pdata->actual;
 			}
 			break;
 
 		case MHIP_CROSSMIXING:
-			if(value != ((struct UserMHI*)handle)->mixing) {
-				((struct UserMHI*)handle)->mixing = value;
-			}
-			break;
-			
-		case MHIP_PREFACTOR:
-			if(value != ((struct UserMHI*)handle)->prefactor) {
-				((struct UserMHI*)handle)->prefactor = value;
+			if(value != usr->mixing) {
+				usr->pdata->parameter = VS_PARAM_CROSSMIX;
+				PutMsg(dat->drvPort, (struct Message *)usr->std);
+				WaitPort(usr->std->io_Message.mn_ReplyPort);
+				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				usr->mixing = usr->pdata->actual;
 			}
 			break;
 
 		case MHIP_BASS:
-			if(value != ((struct UserMHI*)handle)->bass) {
-				((struct UserMHI*)handle)->bass = value;
-
+			if(value != usr->bass) {
+				usr->pdata->parameter = VS_PARAM_BASS;
+				PutMsg(dat->drvPort, (struct Message *)usr->std);
+				WaitPort(usr->std->io_Message.mn_ReplyPort);
+				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				usr->bass = usr->pdata->actual;
 			}
 			break;
 
 		case MHIP_TREBLE:
-			if(value != ((struct UserMHI*)handle)->treble) {
-				((struct UserMHI*)handle)->treble = value;
-
+			if(value != usr->treble) {
+				usr->pdata->parameter = VS_PARAM_TREBLE;
+				PutMsg(dat->drvPort, (struct Message *)usr->std);
+				WaitPort(usr->std->io_Message.mn_ReplyPort);
+				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				usr->treble = usr->pdata->actual;
 			}
+			break;
+
+		default:
 			break;
 	}
 }

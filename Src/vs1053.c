@@ -37,10 +37,13 @@
 #define REG_AICTRL2 	0x0E
 #define REG_AICTRL3 	0x0F
 
+#define SM_EARSPEAKERLO	0x0010
+#define SM_EARSPEAKERHI	0x0080
+#define SM_LAYER12		0x0002
 #define SM_RESET		0x0004
 #define SM_SDISHARE		0x0400
 #define SM_SDINEW		0x0800
-#define SM_CANCEL		0x0080
+#define SM_CANCEL		0x0008
 
 #define SS_DO_NOT_JUMP	0x8000
 
@@ -55,11 +58,102 @@
 // this works best at 16 and then we capture full buffers in VS1053 earlier
 #define CHUNK_SIZE		32
 
+static void writeRegister(UBYTE address, UWORD data);
+static UWORD readRegister(UBYTE address);
+
+
 static void _resetList(struct List *l)
 {
 	l->lh_Tail = NULL;
 	l->lh_Head = (struct Node *)&l->lh_Tail;
 	l->lh_TailPred = (struct Node *)&l->lh_Head;
+}
+
+static void updateVolume(struct VSData *dat)
+{
+	ULONG lvol, rvol, vol ;
+	
+	lvol = rvol = vol = (0x000000FE * (ULONG)dat->volume) / 100L;
+	if (dat->panning > 50){
+		lvol -= (vol*(dat->panning - 50))/50;
+	}
+	if (dat->panning < 50){
+		rvol = (vol*(dat->panning))/50;
+	}
+	// VS10X3 volumes are inverse from 0 max to FE silence.
+	lvol = 0xFE - lvol ;
+	rvol = 0xFE - rvol ;
+	D(DebugPrint(DEBUG_LEVEL, "updateVolume: request vol %u, setting left 0x%08X, setting right 0x%08X, reg 0x%04X\n", dat->volume, lvol, rvol, (UWORD)(lvol << 8 | rvol)));
+	writeRegister(REG_VOL, (UWORD)(lvol << 8 | rvol));
+}
+
+static void doParameter(struct VSData *dat, struct IOStdReq *std)
+{
+	ULONG vol = 0, lvol = 0, rvol = 0;
+	struct VSParameterData *param = NULL;
+	BYTE earspeaker = 0;
+	
+	param = (struct VSParameterData*)std->io_Data;
+	param->actual = 0; // zero for any errors
+	
+	if (std->io_Length != sizeof(struct VSParameterData)){
+		std->io_Error = IOERR_BADLENGTH; // use standard errors from exec/error.h
+		return;
+	}
+	
+	param->actual = param->value; // set to incoming value - updated later if required
+	
+	switch(param->parameter){
+		case VS_PARAM_VOL:
+			dat->volume = param->value ;
+			if (param->value > 100){
+				dat->volume = 100;
+			}
+			updateVolume(dat);
+			param->actual = dat->volume;
+			break;
+		case VS_PARAM_PAN:
+			dat->panning = param->value ;
+			if (param->value > 100){
+				dat->panning = 100;
+			}
+			updateVolume(dat);
+			param->actual = dat->panning;
+			break;
+		case VS_PARAM_CROSSMIX:
+			dat->crossmixing = param->value ;
+			if (param->value > 100){
+				dat->crossmixing = 100;
+			}
+			// Don't actually do crossmixing, but can modify headphone setting
+			// Split into the 4 supported modes
+			earspeaker = dat->crossmixing / 25;
+			if (earspeaker >= 4){
+				earspeaker = 3;
+			}
+			writeRegister(REG_MODE, readRegister(REG_MODE) | ((earspeaker & 0x01)?SM_EARSPEAKERLO:0) | ((earspeaker & 0x02)?SM_EARSPEAKERHI:0));
+			break;
+		case VS_PARAM_BASS:
+			if (param->value > 100){
+				param->actual = 100;
+			}
+			// 0 to 100 with 50 default/normal. Cannot cut bass so only 50-100 used and anything else is normal
+			// HW supports 0-15 range
+			dat->bass = param->actual / 6;
+			// Fall through to set register value (same for bass and treble)
+		case VS_PARAM_TREBLE:
+			if (param->parameter == VS_PARAM_TREBLE){
+				if (param->value > 100){
+					param->actual = 100;
+				}
+				dat->treb = param->actual / 6;
+			}
+			// Treble over 10kHz and bass under 60 Hz
+			writeRegister(REG_BASS, (dat->bass << 4) | (dat->treb << 12) | (dat->treb?(10 << 8):0) | (dat->bass?6:0));
+			break;
+		default:
+			break;
+	}
 }
 
 static void __saveds workerTask(void)
@@ -154,6 +248,9 @@ static void __saveds workerTask(void)
 						D(DebugPrint(DEBUG_LEVEL,"workerTask: CMD_RESET\n"));
 						dat->status = VS_STOPPING; // clear anyother status and flag to just stop
 						break; 
+					case CMD_VSAUDIO_PARAMETER:
+						doParameter(dat, std);
+						break;
 					default:
 						ior->io_Error = IOERR_NOCMD;
 						break;
@@ -445,7 +542,7 @@ close:
 
 BOOL startPlaying(struct VSData *dat)
 {
-	writeRegister(REG_AUDATA, 44101) ;
+	//writeRegister(REG_AUDATA, 44101) ;
 	sendEndBytes(dat, 10);
 	
 	if (!switchToMp3Mode(dat)){
@@ -917,6 +1014,7 @@ BOOL playChunk(struct VSData *dat)
 */
 BOOL resetVS1053(struct VSData *dat)
 {
+	UWORD newMode = 0 ;
 	// TO DO: this func could send message to worker task to reset CMD_RESET
 	// as it cannot work in other processes/tasks as they do not have the right task and signals
 	
@@ -950,8 +1048,12 @@ BOOL resetVS1053(struct VSData *dat)
 	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: patch applied and VS1053 reset\n"));
 	
 	// Set modes
-	writeRegister(REG_MODE, readRegister(REG_MODE) | SM_SDISHARE | SM_SDINEW);
-	
+	newMode = SM_SDISHARE | SM_SDINEW;
+#if VS1053_AUDIO_MPEG12
+	newMode |= SM_LAYER12;
+#endif
+	writeRegister(REG_MODE, readRegister(REG_MODE) | newMode);
+
 	// Set clock
 	writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
 	
@@ -1007,6 +1109,7 @@ struct VSData* initVS1053(void)
 	_resetList(&dat->freeList);
 	dat->sig = -1;
 	dat->initspi = FALSE ;
+	dat->panning = 50;
 	
 	if (!(callingTmr = openTimer())){
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: couldn't open timer\n"));

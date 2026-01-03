@@ -91,7 +91,7 @@ int main(int argc, char **argv)
 	WaitPort(std.io_Message.mn_ReplyPort);	
 	while(GetMsg(std.io_Message.mn_ReplyPort));
 	
-	printf("Press CTRL-C to pause\n");
+	printf("Note that running this test app could break any MHI instance also running\nPress CTRL-C to pause\n");
 	for ( ; ; ){
 		sigs = Wait (SIGBREAKF_CTRL_C | (1 << mySig));
 		if (sigs & SIGBREAKF_CTRL_C){

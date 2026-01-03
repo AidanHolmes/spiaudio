@@ -24,11 +24,36 @@
 #include <dos/dos.h>
 #include <proto/dos.h>
 
+// Status flags
 #define VS_NEWSTART		0x0001
 #define VS_PLAYING 		0x0002
 #define VS_PAUSED 		0x0004
 #define VS_STOPPING		0x0008
 #define VS_NOBUFF		0x0010
+
+// Parameter values
+#define VS_PARAM_VOL		0
+#define VS_PARAM_PAN		1
+#define VS_PARAM_CROSSMIX	2
+#define VS_PARAM_BASS		3
+#define VS_PARAM_TREBLE		4
+
+// Additional commands
+#define CMD_VSAUDIO_PARAMETER		CMD_NONSTD + 0
+
+
+struct VSParameterData
+{
+	UWORD parameter;	// Parameter to change
+	ULONG value;	// Value requested
+	ULONG actual;	// Actual value used (return)
+};
+
+// This can be overridden at compile time
+// to allow or remove MPEG layer 1 and 2 decoding
+#ifndef VS1053_AUDIO_MPEG12
+#define VS1053_AUDIO_MPEG12 1
+#endif
 
 struct VSChunk
 {
@@ -58,6 +83,11 @@ struct VSData
 	struct List bufferList;
 	struct List freeList;
 	UWORD status;
+	UBYTE panning; // 0 full left 50 centre, 100 full right
+	UBYTE volume; // 0 to 100%
+	UBYTE crossmixing; // 0 to 100
+	UBYTE bass;
+	UBYTE treb;
 };
 
 
