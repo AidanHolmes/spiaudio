@@ -2,8 +2,8 @@ AMINETNAME = SPIAudio
 DEVICENAME = mhispiaudio
 # Version - these values are mastered here and overwrite the generated values in makefiles for Debug and Release
 LIBDEVMAJOR = 1
-LIBDEVMINOR = 0
-LIBDEVDATE = "25.12.2025"
+LIBDEVMINOR = 1
+LIBDEVDATE = "03.01.2026"
 LIBDEVNAME = $(DEVICENAME).library
 
 LHADIR = $(AMINETNAME)
