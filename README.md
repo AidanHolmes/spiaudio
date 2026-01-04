@@ -4,6 +4,8 @@ SPI MHI library for the VS1053 SPIder device.
 Do you want to play MP3, OGG or other compressed formats on your Amiga? Maybe it doesn't have a super fast CPU or you want to offload the work whilst getting on with other things. 
 This library/device driver provides an MHI interface through the SPIder clockport. 
 
+Includes standard VS1053B patches and ADMIX patch for audio passthrough.
+
 ## Setup
 Wire the following together from SPIder to VS1053. The pin names refer to Adafruits VS1053 v2 board
 ```
@@ -14,9 +16,10 @@ IO17 -> CS
 IO18 -> SCLK
 IO19 -> MOSI
 IO21 -> DREQ
+IO29 -> RESET (optional, but if excluded then add 1k pull up to reset pin on VS1053)
 ```
 
-RST pin on the VS1053 must be pulled up to V3.3. I used a 1k resistor to pull up. 
+RST pin on the VS1053 must be pulled up to V3.3 if RESET conneciton excluded.
 Other wiring required for audio out. See [Adafruit wiring guide](https://learn.adafruit.com/adafruit-vs1053-mp3-aac-ogg-midi-wav-play-and-record-codec-tutorial/simple-audio-player-wiring) for more info.
 You may damage your audio equipment or VS1053 board if audio capacitors are not provided to line out or input lines [see Adafruit guidance](https://learn.adafruit.com/adafruit-vs1053-mp3-aac-ogg-midi-wav-play-and-record-codec-tutorial/audio-connections) for more info.
 
@@ -34,6 +37,9 @@ Sometimes the VS1053 can get into an unrecoverable state, which a softreset (per
 Even though this offloads to a decoder, the system will still be busy transferring file data. You may notice slower performance for file IO when playing music. Stopping playback should restore
 the system to normal.
 
+## Known issues
+Some clipping on the line in passthrough. 
+
 ## Build
 Requires fd2pragma 2.171 [Aminet Download](https://aminet.net/package/dev/misc/fd2pragma).
 Code is setup to build using SAS/C 6.5 and tools such as **oml**, **smake** and **splat** which come with SAS/C. 
@@ -50,4 +56,4 @@ Projects/
 
 Type **smake** in spiaudio directory to build Release and Debug targets
 
-Requires 1.0.1 SPIder firmware
+Requires 1.0.2 SPIder firmware
