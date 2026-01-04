@@ -16,6 +16,9 @@
 #include "vs1053.h"
 #include "debug.h"
 #include "patches/vs1053b-patches.plg"
+#if VS1053_AUDIO_ADMIX
+#include "patches/admix-stereo.plg"
+#endif
 
 #define VSOP_WRITE 0x0200
 #define VSOP_READ 0x0300
@@ -44,6 +47,7 @@
 #define SM_SDISHARE		0x0400
 #define SM_SDINEW		0x0800
 #define SM_CANCEL		0x0008
+#define SM_LINE1		0x4000
 
 #define SS_DO_NOT_JUMP	0x8000
 
@@ -60,7 +64,7 @@
 
 static void writeRegister(UBYTE address, UWORD data);
 static UWORD readRegister(UBYTE address);
-
+static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec);
 
 static void _resetList(struct List *l)
 {
@@ -89,7 +93,6 @@ static void updateVolume(struct VSData *dat)
 
 static void doParameter(struct VSData *dat, struct IOStdReq *std)
 {
-	ULONG vol = 0, lvol = 0, rvol = 0;
 	struct VSParameterData *param = NULL;
 	BYTE earspeaker = 0;
 	
@@ -196,7 +199,15 @@ static void __saveds workerTask(void)
 	if (!(dat->drvPort = CreateMsgPort())){
 		D(DebugPrint(ERROR_LEVEL,"workerTask: creation of message port failed\n"));
 		goto close;
-	}	
+	}
+	
+	// issue hard reset
+	spider_usr_reset(0);
+	spider_usr_reset(1);
+	if (!waitDREQ_TO(dat, TRUE, 5)){ // wait for hw to come back up after reset
+		D(DebugPrint(ERROR_LEVEL, "workerTask: failed to hard reset\n"));
+		goto close;
+	}
 	
 	// Reset the device here as the worker owns the signal interrupt (waits forever in the calling process)
 	if (!resetVS1053(dat)){
@@ -1041,23 +1052,43 @@ BOOL resetVS1053(struct VSData *dat)
 	// Now load patches
 	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: applying patch\n"));
 	loadCompressedPatch(vs1053b_patch_plugin, sizeof(vs1053b_patch_plugin));
-	if (!waitDREQ_TO(dat, TRUE, 5)){ // patches causes another reset
+	if (!waitDREQ_TO(dat, TRUE, 5)){ // patches cause another reset
 		D(DebugPrint(ERROR_LEVEL, "resetVS1053: failed patch reset\n"));
 		return FALSE ;
 	}
-	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: patch applied and VS1053 reset\n"));
+	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: patch applied\n"));
+	
+#if VS1053_AUDIO_ADMIX
+	// Load ADMIX patch and enable
+	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: applying admix patch\n"));
+	loadCompressedPatch(vs1053b_admix_stereo_plugin, sizeof(vs1053b_admix_stereo_plugin));
+	if (!waitDREQ_TO(dat, TRUE, 5)){ // patches cause another reset
+		D(DebugPrint(ERROR_LEVEL, "resetVS1053: failed admix patch reset\n"));
+		return FALSE ;
+	}
+	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: admix patch applied\n"));
+#endif
 	
 	// Set modes
 	newMode = SM_SDISHARE | SM_SDINEW;
+#if VS1053_AUDIO_ADMIX
+	newMode |= SM_LINE1; // enable line-in
+#endif
 #if VS1053_AUDIO_MPEG12
 	newMode |= SM_LAYER12;
 #endif
 	writeRegister(REG_MODE, readRegister(REG_MODE) | newMode);
+	
+#if VS1053_AUDIO_ADMIX
+	// Set mix gain to -10db
+	writeRegister(REG_AICTRL0, 0xFFFd);
+	writeRegister(REG_AIADDR, 0x0F00);
+#endif
 
 	// Set clock
-	writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
+	//writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
 	
-	spi_set_speed(SPI_MHZ(4)); // TO DO: can we run at 5MHz?
+	//spi_set_speed(SPI_MHZ(4)); // TO DO: can we run at 5MHz?
 	
 	//timer_delay(TIMER_MILLIS(10)); // let clock and stuff settle
 	

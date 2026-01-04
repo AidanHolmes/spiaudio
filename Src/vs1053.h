@@ -55,6 +55,12 @@ struct VSParameterData
 #define VS1053_AUDIO_MPEG12 1
 #endif
 
+// This can be overridden at compile time
+// to allow or remove audio mixing using LINE-IN
+#ifndef VS1053_AUDIO_ADMIX
+#define VS1053_AUDIO_ADMIX 1
+#endif
+
 struct VSChunk
 {
 	struct Node _n;
