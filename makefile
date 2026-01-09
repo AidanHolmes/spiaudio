@@ -2,8 +2,8 @@ AMINETNAME = SPIAudio
 DEVICENAME = mhispiaudio
 # Version - these values are mastered here and overwrite the generated values in makefiles for Debug and Release
 LIBDEVMAJOR = 1
-LIBDEVMINOR = 2
-LIBDEVDATE = "04.01.2026"
+LIBDEVMINOR = 3
+LIBDEVDATE = "09.01.2026"
 LIBDEVNAME = $(DEVICENAME).library
 
 LHADIR = $(AMINETNAME)
@@ -16,10 +16,10 @@ DEBUG = $(DEBUGDIR)/makefile
 #optdepth
 # defines the maximum depth of function calls to be Mined. The
 # range is 0 to 6, and the default value is 3.
-PRODCOPTS = NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
+PRODCOPTS = DEFINE=VS10XX_USE_INTERRUPTS=1 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
 
 # debug version build options
-DBGCOPTS = DEFINE=_DEBUG DEFINE=DEBUG_SERIAL debug=full NOSTACKCHECK
+DBGCOPTS = DEFINE=VS10XX_USE_INTERRUPTS=1 DEFINE=_DEBUG DEFINE=DEBUG_SERIAL debug=full NOSTACKCHECK
 
 all: $(RELEASE) $(DEBUG) $(AMINETNAME).lha includes
 	execute <<

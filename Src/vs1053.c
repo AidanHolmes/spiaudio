@@ -16,9 +16,13 @@
 #include "vs1053.h"
 #include "debug.h"
 #include "patches/vs1053b-patches.plg"
+#include "patches/vs1063a-patches.plg"
 #if VS1053_AUDIO_ADMIX
 #include "patches/admix-stereo.plg"
 #endif
+
+#define VERSION_VS1053		4
+#define VERSION_VS1063		6
 
 #define VSOP_WRITE 0x0200
 #define VSOP_READ 0x0300
@@ -40,8 +44,8 @@
 #define REG_AICTRL2 	0x0E
 #define REG_AICTRL3 	0x0F
 
-#define SM_EARSPEAKERLO	0x0010
-#define SM_EARSPEAKERHI	0x0080
+#define SM_EARSPEAKERLO	0x0010 // not used in VS1063a
+#define SM_EARSPEAKERHI	0x0080 // not used in VS1063a
 #define SM_LAYER12		0x0002
 #define SM_RESET		0x0004
 #define SM_SDISHARE		0x0400
@@ -57,6 +61,37 @@
 #define ADDR_REG_GPIO_VAL_R  		0xc018
 #define ADDR_REG_GPIO_ODATA_RW  	0xc019
 #define ADDR_REG_I2S_CONFIG_RW  	0xc040
+// VS1063 address locations
+#define ADDR63_PLAYMODE 			0x1E09
+#define ADDR63_ADMIX_GAIN			0x1E0D
+#define ADDR63_ADMIX_CONFIG			0x1E0E
+#define ADDR63_EARSPEAKER			0x1E1E
+#define ADDR63_EQ5LEVEL1			0x1E13
+#define ADDR63_EQ5FREQ1				0x1E14
+#define ADDR63_EQ5LEVEL2			0x1E15
+#define ADDR63_EQ5FREQ2				0x1E16
+#define ADDR63_EQ5LEVEL3			0x1E17
+#define ADDR63_EQ5FREQ3				0x1E18
+#define ADDR63_EQ5LEVEL4			0x1E19
+#define ADDR63_EQ5FREQ4				0x1E1A
+#define ADDR63_EQ5LEVEL5			0x1E1B
+#define ADDR63_EQ5UPDATE			0x1E1C
+
+#define VS63PLAYMODE_ADMIX				(1 << 3)
+#define VS63PLAYMODE_5BAND				(1 << 5)
+
+#define VS63ADMIXER_RATEMASK 			(3 << 4)
+#define VS63ADMIXER_RATE192 			(0 << 4)
+#define VS63ADMIXER_RATE96 				(1 << 4)
+#define VS63ADMIXER_RATE48 				(2 << 4)
+#define VS63ADMIXER_RATE24 				(3 << 4)
+#define VS63ADMIXER_MODEMASK 			(3 << 6)
+#define VS63ADMIXER_MODESTEREO 			(0 << 6)
+#define VS63ADMIXER_MODEMONO 			(1 << 6)
+#define VS63ADMIXER_MODELEFT 			(2 << 6)
+#define VS63ADMIXER_MODERIGHT			(3 << 6)
+
+
 
 // Chunk size to send to VS1053. Can be 32 max, but due to SPIder lag
 // this works best at 16 and then we capture full buffers in VS1053 earlier
@@ -65,6 +100,7 @@
 static void writeRegister(UBYTE address, UWORD data);
 static UWORD readRegister(UBYTE address);
 static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec);
+static UWORD writeMemoryWord(struct VSData *dat, UWORD address, UWORD value);
 
 static void _resetList(struct List *l)
 {
@@ -75,20 +111,94 @@ static void _resetList(struct List *l)
 
 static void updateVolume(struct VSData *dat)
 {
+	// AmigaAmp works on a volume slider from -30db. Initial volume is 50 (out of 100)
+	// VS10XX works down to -254db which isn't needed here. Anything of or below -33 is silence.
+	// Separate into -3db per % of volume 
 	ULONG lvol, rvol, vol ;
 	
-	lvol = rvol = vol = (0x000000FE * (ULONG)dat->volume) / 100L;
-	if (dat->panning > 50){
-		lvol -= (vol*(dat->panning - 50))/50;
-	}
-	if (dat->panning < 50){
-		rvol = (vol*(dat->panning))/50;
+	//lvol = rvol = vol = (0x000000FE * (ULONG)dat->volume) / 100L;
+	lvol = rvol = vol = dat->volume / 3 ;
+	if (vol > 0){
+		if (dat->panning > 50){
+			lvol -= (vol*(dat->panning - 50))/50;
+		}
+		if (dat->panning < 50){
+			rvol = (vol*(dat->panning))/50;
+		}
 	}
 	// VS10X3 volumes are inverse from 0 max to FE silence.
-	lvol = 0xFE - lvol ;
-	rvol = 0xFE - rvol ;
+	if (vol == 0){ // volume below -30db. Cut to zero after this.
+		lvol = 254; 
+		rvol = 254;
+	}else{
+		// invert volumes with 0 the loudest
+		lvol = 33 - lvol ;
+		rvol = 33 - rvol ;
+	}
 	D(DebugPrint(DEBUG_LEVEL, "updateVolume: request vol %u, setting left 0x%08X, setting right 0x%08X, reg 0x%04X\n", dat->volume, lvol, rvol, (UWORD)(lvol << 8 | rvol)));
 	writeRegister(REG_VOL, (UWORD)(lvol << 8 | rvol));
+}
+
+static void initEqualiser(struct VSData *dat)
+{
+	UWORD i = 0, freqs[] = {64,250,1000,4000};
+	if (dat->version == VERSION_VS1063){
+		writeRegister(REG_BASS, 0) ; // switch off
+		for (;i<4;i++){
+			writeMemoryWord(dat, ADDR63_EQ5FREQ1+(i*2), freqs[i]);
+		}
+		writeMemoryWord(dat, ADDR63_EQ5UPDATE, 1);
+	}
+}
+
+static void setEqualiser(struct VSData *dat, struct VSParameterData *param)
+{
+	WORD i=0, val = ((param->actual / 3) - 16)*2;
+	
+	if (dat->version == VERSION_VS1053 && (param->parameter == VS_PARAM_BASS || param->parameter == VS_PARAM_TREBLE)){
+		// Treble over 10kHz and bass under 60 Hz
+		// 0 to 100 with 50 default/normal. Cannot cut so only 50-100 used and anything else is normal
+		// HW supports 0-15 range for REG_BASS
+		
+		if (param->parameter == VS_PARAM_BASS){
+			dat->bass = 0;
+			if (param->actual > 50){
+				dat->bass = (param->actual - 50) / 3;
+				if (dat->bass > 15){
+					dat->bass = 15;
+				}
+			}
+		}else if (param->parameter == VS_PARAM_TREBLE){
+			dat->treb = param->actual / 6 ;
+			if (dat->treb > 15){
+				dat->treb = 15;
+			}
+		}
+
+		D(DebugPrint(DEBUG_LEVEL,"setEqualiser: VS1053 0x%04X\n", (dat->bass << 4) | (dat->treb << 12) | (dat->treb?(10 << 8):0) | (dat->bass?6:0)));
+		writeRegister(REG_BASS, (dat->bass << 4) | (dat->treb << 12) | (dat->treb?(10 << 8):0) | (dat->bass?6:0));
+	}else if (dat->version == VERSION_VS1063){
+		// cut into 32 across 100 which is about 3 per percent. 64 is too fractional so just halve the range
+		switch(param->parameter){
+			case VS_PARAM_BASS: i=0; break;
+			case VS_PARAM_MIDBASS: i=1; break;
+			case VS_PARAM_MID: i=2; break;
+			case VS_PARAM_MIDHIGH: i=3; break;
+			case VS_PARAM_TREBLE: i=4; break;
+			default:
+				break;
+		}
+		
+		if (val < -32){
+			val = -32;
+		}
+		if (val > 32){
+			val = 32;
+		}
+		D(DebugPrint(DEBUG_LEVEL,"setEqualiser: VS1063 eq %d = %d\n", i, val));
+		writeMemoryWord(dat, ADDR63_EQ5LEVEL1+(i*2), val);
+		writeMemoryWord(dat, ADDR63_EQ5UPDATE, 1);
+	}
 }
 
 static void doParameter(struct VSData *dat, struct IOStdReq *std)
@@ -134,25 +244,22 @@ static void doParameter(struct VSData *dat, struct IOStdReq *std)
 			if (earspeaker >= 4){
 				earspeaker = 3;
 			}
-			writeRegister(REG_MODE, readRegister(REG_MODE) | ((earspeaker & 0x01)?SM_EARSPEAKERLO:0) | ((earspeaker & 0x02)?SM_EARSPEAKERHI:0));
+			if (dat->version == 4){
+				writeRegister(REG_MODE, readRegister(REG_MODE) | ((earspeaker & 0x01)?SM_EARSPEAKERLO:0) | ((earspeaker & 0x02)?SM_EARSPEAKERHI:0));
+			}
+			if (dat->version == 6){
+				writeMemoryWord(dat, ADDR63_EARSPEAKER, 500 * dat->crossmixing);
+			}
 			break;
 		case VS_PARAM_BASS:
+		case VS_PARAM_TREBLE:
+		case VS_PARAM_MID:
+		case VS_PARAM_MIDBASS:
+		case VS_PARAM_MIDHIGH:
 			if (param->value > 100){
 				param->actual = 100;
 			}
-			// 0 to 100 with 50 default/normal. Cannot cut bass so only 50-100 used and anything else is normal
-			// HW supports 0-15 range
-			dat->bass = param->actual / 6;
-			// Fall through to set register value (same for bass and treble)
-		case VS_PARAM_TREBLE:
-			if (param->parameter == VS_PARAM_TREBLE){
-				if (param->value > 100){
-					param->actual = 100;
-				}
-				dat->treb = param->actual / 6;
-			}
-			// Treble over 10kHz and bass under 60 Hz
-			writeRegister(REG_BASS, (dat->bass << 4) | (dat->treb << 12) | (dat->treb?(10 << 8):0) | (dat->bass?6:0));
+			setEqualiser(dat, param);
 			break;
 		default:
 			break;
@@ -194,6 +301,11 @@ static void __saveds workerTask(void)
 		goto close;
 	}
 	dat->initspi = TRUE ;
+#if VS10XX_USE_INTERRUPTS
+	spi_enable_interrupt();
+#else
+	spi_disable_interrupt();
+#endif
 	
 	// Setup message port to handle new messages
 	if (!(dat->drvPort = CreateMsgPort())){
@@ -222,8 +334,7 @@ static void __saveds workerTask(void)
 		//D(DebugPrint(DEBUG_LEVEL, "workerTask: dat->status 0x%04X\n", dat->status));
 		if ((dat->status & (VS_PLAYING | VS_PAUSED)) == VS_PLAYING || (dat->status & VS_STOPPING) > 0){
 			//D(DebugPrint(DEBUG_LEVEL, "workerTask: dat->status sending sig for 0x%04X\n", dat->status));
-			//Signal(dat->drvTask, 1 << dat->sig); // set signal and force new loop
-			sigs = SetSignal(0L,0L) ; // Peek at waiting signals
+			sigs = SetSignal(0L,0L) & sigmask; // Peek at waiting signals we are interested in
 			if (sigs){
 				// Wait and clear signals properly
 				sigs = Wait(sigmask);
@@ -333,16 +444,24 @@ __inline static BOOL waitDREQ(struct VSData *dat, BOOL high)
 {
 	ULONG sigs = 0;
 	
+#if !VS10XX_USE_INTERRUPTS
+	setTimer(dat->tmr, 1, 0);
+#endif 
 	while(dreq() != high){
-		sigs = timerWaitTO(dat->tmr, 1, 0, 1 << dat->sig);
-		//if (sigs){
-		//	D(DebugPrint(DEBUG_LEVEL,"waitDREQ: int fired\n"));
-		//}
+#if VS10XX_USE_INTERRUPTS
+		sigs = timerWaitTO(dat->tmr, 1, 0, 1 << dat->sig); // wait completed or timer ended
 		if (!sigs && (dreq() != high)){
+#else
+		if(CheckIO(dat->tmr)){ // Timer completed in polling mode
+			WaitIO(dat->tmr) ; // clear timer (should return immediately)
+#endif
 			D(DebugPrint(DEBUG_LEVEL,"waitDREQ: timed out with dreq %d and waiting for it to be %d\n", dreq(), high));
 			return FALSE ; // timed out
 		}
 	}
+#if !VS10XX_USE_INTERRUPTS
+	AbortIO(dat->tmr); // clear the timer started in polling loop
+#endif
 	return TRUE ;
 }
 
@@ -350,13 +469,24 @@ __inline static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec)
 {
 	ULONG sigs = 0;
 	
+#if !VS10XX_USE_INTERRUPTS
+	setTimer(dat->tmr, 1, 0);
+#endif 
 	while(dreq() != high){
-		sigs = timerWaitTO(dat->tmr, sec, 0, 1 << dat->sig);
+#if VS10XX_USE_INTERRUPTS
+		sigs = timerWaitTO(dat->tmr, sec, 0, 1 << dat->sig); // wait completed or timer ended
 		if (!sigs && (dreq() != high)){
+#else
+		if(CheckIO(dat->tmr)){ // Timer completed in polling mode
+			WaitIO(dat->tmr) ; // clear timer (should return immediately)
+#endif
 			D(DebugPrint(DEBUG_LEVEL,"waitDREQ: timed out with dreq %d and waiting for it to be %d\n", dreq(), high));
 			return FALSE ; // timed out
 		}
 	}
+#if !VS10XX_USE_INTERRUPTS
+	AbortIO(dat->tmr); // clear the timer started in polling loop
+#endif
 	return TRUE ;
 }
 
@@ -556,10 +686,10 @@ BOOL startPlaying(struct VSData *dat)
 	//writeRegister(REG_AUDATA, 44101) ;
 	sendEndBytes(dat, 10);
 	
-	if (!switchToMp3Mode(dat)){
-		D(DebugPrint(ERROR_LEVEL, "playBuffer: couldn't switch to MP3 mode\n"));
-		return FALSE ;
-	}
+	//if (!switchToMp3Mode(dat)){
+	//	D(DebugPrint(ERROR_LEVEL, "playBuffer: couldn't switch to MP3 mode\n"));
+	//	return FALSE ;
+	//}
 	return TRUE ;
 }
 
@@ -1041,17 +1171,45 @@ BOOL resetVS1053(struct VSData *dat)
 	
 	// Set modes
 	writeRegister(REG_MODE, readRegister(REG_MODE) | SM_SDISHARE | SM_SDINEW);
+	
+	dat->version = (readRegister(REG_STATUS) & 0x00F0) >> 4;
+	if (dat->version != VERSION_VS1053 && dat->version != VERSION_VS1063){
+		D(DebugPrint(ERROR_LEVEL, "initVS1053: invalid hardware. Expecting version 4 or 6, read version %u\n", dat->version));
+		return FALSE;
+	}
+	
+	if (dat->version == VERSION_VS1053){
+		// Stop start up of VS1053 in MIDI mode
+		writeMemoryWord(dat, ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
+		writeMemoryWord(dat, ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
+	}
+	
+	dat->endfill = (UBYTE)(readMemoryWord(dat,VSMEM_ENDFILLBYTE) & 0xFF);
 
 	// Set clock
-	writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
+	if (dat->version == VERSION_VS1053){
+		writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
+	}
+	if (dat->version == VERSION_VS1063){
+		writeRegister(REG_CLOCKF, 0xD000); // 4.5x with additional 1.5x
+	}
 	
-	spi_set_speed(SPI_MHZ(4)); // TO DO: can we run at 5MHz?
+	if (dat->version == VERSION_VS1063){
+		spi_set_speed(SPI_MHZ(10)); // run at 10MHz
+	}else{
+		spi_set_speed(SPI_MHZ(5)); // run at 5MHz
+	}
 	
 	timer_delay(TIMER_MILLIS(2)); // let clock and stuff settle
 	
 	// Now load patches
 	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: applying patch\n"));
-	loadCompressedPatch(vs1053b_patch_plugin, sizeof(vs1053b_patch_plugin));
+	if (dat->version == VERSION_VS1053){
+		loadCompressedPatch(vs1053b_patch_plugin, sizeof(vs1053b_patch_plugin));
+	}
+	if (dat->version == VERSION_VS1063){
+		loadCompressedPatch(vs1063a_patch_plugin, sizeof(vs1063a_patch_plugin));
+	}
 	if (!waitDREQ_TO(dat, TRUE, 5)){ // patches cause another reset
 		D(DebugPrint(ERROR_LEVEL, "resetVS1053: failed patch reset\n"));
 		return FALSE ;
@@ -1060,13 +1218,15 @@ BOOL resetVS1053(struct VSData *dat)
 	
 #if VS1053_AUDIO_ADMIX
 	// Load ADMIX patch and enable
-	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: applying admix patch\n"));
-	loadCompressedPatch(vs1053b_admix_stereo_plugin, sizeof(vs1053b_admix_stereo_plugin));
-	if (!waitDREQ_TO(dat, TRUE, 5)){ // patches cause another reset
-		D(DebugPrint(ERROR_LEVEL, "resetVS1053: failed admix patch reset\n"));
-		return FALSE ;
+	if (dat->version == VERSION_VS1053){
+		D(DebugPrint(DEBUG_LEVEL,"resetVS1053: applying admix patch\n"));
+		loadCompressedPatch(vs1053b_admix_stereo_plugin, sizeof(vs1053b_admix_stereo_plugin));
+		if (!waitDREQ_TO(dat, TRUE, 5)){ // patches cause another reset
+			D(DebugPrint(ERROR_LEVEL, "resetVS1053: failed admix patch reset\n"));
+			return FALSE ;
+		}
+		D(DebugPrint(DEBUG_LEVEL,"resetVS1053: admix patch applied\n"));
 	}
-	D(DebugPrint(DEBUG_LEVEL,"resetVS1053: admix patch applied\n"));
 #endif
 	
 	// Set modes
@@ -1080,17 +1240,23 @@ BOOL resetVS1053(struct VSData *dat)
 	writeRegister(REG_MODE, readRegister(REG_MODE) | newMode);
 	
 #if VS1053_AUDIO_ADMIX
-	// Set mix gain to -10db
-	writeRegister(REG_AICTRL0, 0xFFFd);
-	writeRegister(REG_AIADDR, 0x0F00);
+	if(dat->version == VERSION_VS1053){
+		// Set mix gain to -3db
+		writeRegister(REG_AICTRL0, 0xFFFd);
+		writeRegister(REG_AIADDR, 0x0F00);
+	}
+	if (dat->version == VERSION_VS1063){
+		writeMemoryWord(dat, ADDR63_ADMIX_GAIN, 0xFFFd); // -3db
+		writeMemoryWord(dat, ADDR63_ADMIX_CONFIG, VS63ADMIXER_RATE48 | VS63ADMIXER_MODESTEREO);
+		dat->playMode |= VS63PLAYMODE_ADMIX;
+	}
 #endif
 
-	// Set clock
-	//writeRegister(REG_CLOCKF, 0x9800); // 3.5x with additional 2.5x
-	
-	//spi_set_speed(SPI_MHZ(4)); // TO DO: can we run at 5MHz?
-	
-	//timer_delay(TIMER_MILLIS(10)); // let clock and stuff settle
+	// Enable correct play mode for VS1063
+	if (dat->version == VERSION_VS1063){
+		initEqualiser(dat); // Set frequencies
+		writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
+	}
 	
 	return TRUE;
 }
@@ -1108,7 +1274,9 @@ BOOL resetVS1053(struct VSData *dat)
 *     be started from a process, not a task.
 *
 * INPUTS
-*     void - no inputs
+*     LONG priority - -125 to 125 OS priority for worker task. Note that if the
+*                     priority is higher than calling then could result in signal
+*                     issues
 *
 * RESULT
 *     struct VSData* - allocated struct for the instance. Must be freed with 
@@ -1118,14 +1286,17 @@ BOOL resetVS1053(struct VSData *dat)
 *     Unpredictable if run on system without VS1053 hardware attached to SPIder.
 *     Does not support VS1033 or other models of decoder. Versions are checked
 *     and will fail initialisation if hardware is different.
-* 
+*     High priorities can cause issues with signals not arriving in calling task
+*     and buffers not getting filled. About 5 to reduce glitching of buffer fills
+*     works. Building without interrupts (experimental) overrides this setting. 
+*
 * SEE ALSO
 *     destroyVS1053()
 *
 *******************************************************************************
 *
 */
-struct VSData* initVS1053(void)
+struct VSData* initVS1053(LONG priority)
 {
 	struct VSData *dat = NULL ;
 	BOOL success = FALSE ;
@@ -1141,6 +1312,7 @@ struct VSData* initVS1053(void)
 	dat->sig = -1;
 	dat->initspi = FALSE ;
 	dat->panning = 50;
+	dat->playMode = VS63PLAYMODE_5BAND; // All desired defaults for VS1063
 	
 	if (!(callingTmr = openTimer())){
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: couldn't open timer\n"));
@@ -1157,7 +1329,12 @@ struct VSData* initVS1053(void)
 	read_and_parse_config_file(&dat->config);
 	dat->callingTask = FindTask(NULL);
 	
-	dat->drvTask = createWorkerTask(dat, "SPIAudio", 0, workerTask, 4096, dat);
+#if VS10XX_USE_INTERRUPTS
+	dat->drvTask = createWorkerTask(dat, "SPIAudio", priority, workerTask, 4096, dat);
+#else
+	// Too instable with normal or higher priorities
+	dat->drvTask = createWorkerTask(dat, "SPIAudio", -10, workerTask, 4096, dat);
+#endif
 	if (!timerWaitTO(callingTmr, 5, 0, 1 << dat->callingSig)){
 		// Task must have failed
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: no task signal received to confirm worker running\n"));
@@ -1169,13 +1346,6 @@ struct VSData* initVS1053(void)
 	}
 	
 	//D(DebugPrint(DEBUG_LEVEL,"initVS1053: Completed init, REG_MODE set to 0x%04X\n", readRegister(REG_MODE)));
-	
-	if (((reg=readRegister(REG_STATUS)) & 0x00F0) != 0x40){
-		D(DebugPrint(ERROR_LEVEL, "initVS1053: invalid hardware. Expecting version 4, read version %u\n", (reg & 0x00F0) >> 4));
-		goto close;
-	}
-	
-	dat->endfill = (UBYTE)(readMemoryWord(dat,VSMEM_ENDFILLBYTE) & 0xFF);
 	
 #ifdef _DEBUG
 	//D(DebugPrint(DEBUG_LEVEL,"initVS1053: EndFillByte 0x%02X\n", dat->endfill));

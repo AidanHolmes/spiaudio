@@ -37,6 +37,9 @@
 #define VS_PARAM_CROSSMIX	2
 #define VS_PARAM_BASS		3
 #define VS_PARAM_TREBLE		4
+#define VS_PARAM_MID		5
+#define VS_PARAM_MIDBASS	6
+#define VS_PARAM_MIDHIGH	7
 
 // Additional commands
 #define CMD_VSAUDIO_PARAMETER		CMD_NONSTD + 0
@@ -60,6 +63,13 @@ struct VSParameterData
 #ifndef VS1053_AUDIO_ADMIX
 #define VS1053_AUDIO_ADMIX 1
 #endif
+
+// This can be overridden at compile time
+// to control the use of interrupts
+#ifndef VS10XX_USE_INTERRUPTS
+#define VS10XX_USE_INTERRUPTS 1
+#endif
+
 
 struct VSChunk
 {
@@ -89,15 +99,17 @@ struct VSData
 	struct List bufferList;
 	struct List freeList;
 	UWORD status;
+	UWORD playMode ; // Only applicable to VS1063, ignored for VS1053
 	UBYTE panning; // 0 full left 50 centre, 100 full right
 	UBYTE volume; // 0 to 100%
 	UBYTE crossmixing; // 0 to 100
 	UBYTE bass;
 	UBYTE treb;
+	UBYTE version;
 };
 
 
-struct VSData* initVS1053(void);
+struct VSData* initVS1053(LONG priority);
 BOOL resetVS1053(struct VSData *dat);
 void destroyVS1053(struct VSData *dat);
 

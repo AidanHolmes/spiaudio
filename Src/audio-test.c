@@ -39,9 +39,7 @@ int main(int argc, char **argv)
 	UBYTE *allMem = NULL, *buffer = NULL;
 	BYTE mySig = -1 ;
 	struct VSChunk *chunk = NULL;
-	struct IOStdReq std ;
-	
-	memset(&std, 0, sizeof(struct IOStdReq));
+	struct IOStdReq *std = NULL ;
 	
 	if (argc >= 2){
 		musicFileName = argv[1];
@@ -59,7 +57,12 @@ int main(int argc, char **argv)
 		goto exit;
 	}
 	
-	if (!(vsdat=initVS1053())){
+	if (!(std = AllocVec(sizeof(struct IOStdReq), MEMF_PUBLIC | MEMF_CLEAR))){
+		printf("Cannot allocate required memory for IO\n");
+		goto exit;
+	}
+	
+	if (!(vsdat=initVS1053(0))){
 		printf("Failed to initialise VS1053\n");
 		goto exit;
 	}
@@ -78,28 +81,28 @@ int main(int argc, char **argv)
 		}
 	}
 	
-	if (!(std.io_Message.mn_ReplyPort = CreateMsgPort())){
+	if (!(std->io_Message.mn_ReplyPort = CreateMsgPort())){
 		goto exit;
 	}else{
-		std.io_Message.mn_Length = sizeof(struct IOStdReq) ;
-		std.io_Message.mn_Node.ln_Type = NT_MESSAGE;
-		std.io_Command = 0;
+		std->io_Message.mn_Length = sizeof(struct IOStdReq) ;
+		std->io_Message.mn_Node.ln_Type = NT_MESSAGE;
+		std->io_Command = 0;
 	}
 	
-	std.io_Command = CMD_START; // start playback
-	PutMsg(vsdat->drvPort, (struct Message *)&std);
-	WaitPort(std.io_Message.mn_ReplyPort);	
-	while(GetMsg(std.io_Message.mn_ReplyPort));
+	std->io_Command = CMD_START; // start playback
+	PutMsg(vsdat->drvPort, (struct Message *)std);
+	WaitPort(std->io_Message.mn_ReplyPort);	
+	GetMsg(std->io_Message.mn_ReplyPort); //while(GetMsg(std->io_Message.mn_ReplyPort));
 	
 	printf("Note that running this test app could break any MHI instance also running\nPress CTRL-C to pause\n");
 	for ( ; ; ){
 		sigs = Wait (SIGBREAKF_CTRL_C | (1 << mySig));
 		if (sigs & SIGBREAKF_CTRL_C){
 			printf("Pausing - press CTRL-C again to stop\n");
-			std.io_Command = CMD_STOP; // stop/pause playback
-			PutMsg(vsdat->drvPort, (struct Message *)&std);
-			WaitPort(std.io_Message.mn_ReplyPort);	
-			while(GetMsg(std.io_Message.mn_ReplyPort));
+			std->io_Command = CMD_STOP; // stop/pause playback
+			PutMsg(vsdat->drvPort, (struct Message *)std);
+			WaitPort(std->io_Message.mn_ReplyPort);	
+			while(GetMsg(std->io_Message.mn_ReplyPort));
 			break;
 		}else{ // mySig triggered meaning new buffer or status change
 			//printf("%");
@@ -132,10 +135,10 @@ int main(int argc, char **argv)
 		sigs = Wait (SIGBREAKF_CTRL_C);
 		if (sigs & SIGBREAKF_CTRL_C){
 			printf("Stopping...\n");
-			std.io_Command = CMD_RESET; // stop playback
-			PutMsg(vsdat->drvPort, (struct Message *)&std);
-			WaitPort(std.io_Message.mn_ReplyPort);
-			while(GetMsg(std.io_Message.mn_ReplyPort));
+			std->io_Command = CMD_RESET; // stop playback
+			PutMsg(vsdat->drvPort, (struct Message *)std);
+			WaitPort(std->io_Message.mn_ReplyPort);
+			while(GetMsg(std->io_Message.mn_ReplyPort));
 			printf("Stopped\n");
 			break;
 		}
@@ -147,8 +150,11 @@ exit:
 		FreeVec(allMem);
 	}
 	Close(f);
-	if (std.io_Message.mn_ReplyPort){
-		DeleteMsgPort(std.io_Message.mn_ReplyPort);
+	if (std->io_Message.mn_ReplyPort){
+		DeleteMsgPort(std->io_Message.mn_ReplyPort);
+	}
+	if (std){
+		FreeVec(std);
 	}
 	FreeSignal(mySig);
 	destroyVS1053(vsdat);

@@ -19,6 +19,9 @@
 #include <libraries/mhi.h>
 #include <string.h>
 
+#define _STR(A) #A
+#define STR(A) _STR(A)
+
 struct UserMHI{
 	struct Task *task;
 	struct IOStdReq *std;
@@ -30,6 +33,9 @@ struct UserMHI{
 	UBYTE mixing;
 	UBYTE bass;
 	UBYTE treble;
+	UBYTE mid;
+	UBYTE midbass;
+	UBYTE midhigh;
 };
 
 
@@ -42,7 +48,7 @@ struct LibDevBase* __saveds __asm libdev_initalise(register __a6 struct LibDevBa
 {
 	struct VSData *config = NULL ;
 	
-	base->libData = config = (struct VSData *)initVS1053();
+	base->libData = config = (struct VSData *)initVS1053(5);
 	if (!base->libData){
 		return NULL;
 	}
@@ -233,6 +239,9 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 		case MHIQ_LAYER3:
 			return MHIF_SUPPORTED;
 			
+		case MHIQ_CAPABILITIES:
+			return (ULONG)"audio/mpeg{audio/mp2,audio/mp3},audio/ogg{audio/vorbis,audio/opus},audio/mp4{audio/aac},audio/aac,audio/flac,audio/wav";
+			
 		// Supported features
 		case MHIQ_VARIABLE_BITRATE:
 		case MHIQ_JOINT_STEREO:
@@ -241,13 +250,14 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 		case MHIQ_VOLUME_CONTROL: 
 		case MHIQ_PANNING_CONTROL:
 		case MHIQ_CROSSMIXING:
+		case MHIQ_PREFACTOR_CONTROL: 	// let's pretend this is supported		
+		case MHIQ_MID_CONTROL: 			// let's pretend this is supported (it is in VS1063)
+		case MHIQ_5_BAND_EQ:
 			return MHIF_SUPPORTED;
 			
-		// Unsupported features
-		case MHIQ_PREFACTOR_CONTROL:		
-		case MHIQ_MID_CONTROL:
+		case MHIQ_10_BAND_EQ:
 			return MHIF_UNSUPPORTED;
-
+			
 		// Other query values
 		case MHIQ_IS_HARDWARE:
 			return MHIF_TRUE;
@@ -257,10 +267,10 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 			return MHIF_FALSE;
 			
 		case MHIQ_DECODER_NAME:
-			return (ULONG)"SPIder VS1053";
+			return (ULONG)"SPIder VS1053/1063";
 
 		case MHIQ_DECODER_VERSION:
-			return (ULONG)"1";
+			return (ULONG)STR(LIBDEVMAJOR) "." STR(LIBDEVMINOR); 
 			
 		case MHIQ_AUTHOR:
 			return (ULONG)"Aidan Holmes";
@@ -268,6 +278,13 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 		default:
 			return MHIF_UNSUPPORTED;
 	}
+}
+
+__inline void sendAndWait(struct VSData *dat, struct IOStdReq *std)
+{
+	PutMsg(dat->drvPort, (struct Message *)std);
+	WaitPort(std->io_Message.mn_ReplyPort);
+	while(GetMsg(std->io_Message.mn_ReplyPort));
 }
 
 VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0 UWORD param, register __d1 ULONG value, register __a6 struct LibDevBase *base)
@@ -279,25 +296,20 @@ VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0
 	usr->pdata->value = value ;
 	usr->std->io_Length = sizeof(struct VSParameterData);
 	usr->std->io_Data = usr->pdata; // needs to be public memory to share with driver
-	
+	D(DebugPrint(DEBUG_LEVEL, "MHISetParam: param %u, value %u\n", param, value));
 	switch (param) {
 		case MHIP_VOLUME:
 			if(value != usr->volume) {
 				usr->pdata->parameter = VS_PARAM_VOL;
-				PutMsg(dat->drvPort, (struct Message *)usr->std);
-				WaitPort(usr->std->io_Message.mn_ReplyPort);
-				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				sendAndWait(dat, usr->std);
 				usr->volume = usr->pdata->actual;
 			}
-
 			break;
 	
 		case MHIP_PANNING:
 			if(value != usr->panning) {
 				usr->pdata->parameter = VS_PARAM_PAN;
-				PutMsg(dat->drvPort, (struct Message *)usr->std);
-				WaitPort(usr->std->io_Message.mn_ReplyPort);
-				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				sendAndWait(dat, usr->std);
 				usr->panning = usr->pdata->actual;
 			}
 			break;
@@ -305,9 +317,7 @@ VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0
 		case MHIP_CROSSMIXING:
 			if(value != usr->mixing) {
 				usr->pdata->parameter = VS_PARAM_CROSSMIX;
-				PutMsg(dat->drvPort, (struct Message *)usr->std);
-				WaitPort(usr->std->io_Message.mn_ReplyPort);
-				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				sendAndWait(dat, usr->std);
 				usr->mixing = usr->pdata->actual;
 			}
 			break;
@@ -315,9 +325,7 @@ VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0
 		case MHIP_BASS:
 			if(value != usr->bass) {
 				usr->pdata->parameter = VS_PARAM_BASS;
-				PutMsg(dat->drvPort, (struct Message *)usr->std);
-				WaitPort(usr->std->io_Message.mn_ReplyPort);
-				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				sendAndWait(dat, usr->std);
 				usr->bass = usr->pdata->actual;
 			}
 			break;
@@ -325,13 +333,35 @@ VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0
 		case MHIP_TREBLE:
 			if(value != usr->treble) {
 				usr->pdata->parameter = VS_PARAM_TREBLE;
-				PutMsg(dat->drvPort, (struct Message *)usr->std);
-				WaitPort(usr->std->io_Message.mn_ReplyPort);
-				while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+				sendAndWait(dat, usr->std);
 				usr->treble = usr->pdata->actual;
 			}
 			break;
 
+		case MHIP_MID:
+			if(value != usr->treble) {
+				usr->pdata->parameter = VS_PARAM_MID;
+				sendAndWait(dat, usr->std);
+				usr->mid = usr->pdata->actual;
+			}
+			break;
+			
+		case MHIP_MIDBASS:
+			if(value != usr->treble) {
+				usr->pdata->parameter = VS_PARAM_MIDBASS;
+				sendAndWait(dat, usr->std);
+				usr->midbass = usr->pdata->actual;
+			}
+			break;
+			
+		case MHIP_MIDHIGH:
+			if(value != usr->treble) {
+				usr->pdata->parameter = VS_PARAM_MIDHIGH;
+				sendAndWait(dat, usr->std);
+				usr->midhigh = usr->pdata->actual;
+			}
+			break;
+			
 		default:
 			break;
 	}
