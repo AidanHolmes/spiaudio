@@ -23,11 +23,12 @@
 #define STR(A) _STR(A)
 
 struct UserMHI{
+	UWORD version;
+	struct MsgPort *drvPort;
 	struct Task *task;
 	struct IOStdReq *std;
 	struct VSParameterData *pdata;
 	ULONG signal;
-	UBYTE status;
 	UBYTE volume;
 	UBYTE panning;
 	UBYTE mixing;
@@ -38,6 +39,12 @@ struct UserMHI{
 	UBYTE midhigh;
 };
 
+__inline void sendAndWait(struct VSData *dat, struct IOStdReq *std)
+{
+	PutMsg(dat->drvPort, (struct Message *)std);
+	WaitPort(std->io_Message.mn_ReplyPort);
+	while(GetMsg(std->io_Message.mn_ReplyPort));
+}
 
 struct LibDevBase* __saveds __asm libdev_library_open(register __a6 struct LibDevBase *base)
 {
@@ -76,12 +83,16 @@ APTR    __saveds __asm MHIAllocDecoder (register __a0 struct Task *task , regist
 {
 	BOOL completedOK = FALSE ;
 	struct UserMHI *usr = NULL;
+	struct VSData *dat = (struct VSData*)base->libData;
+	
 	if (!(usr=AllocVec(sizeof(struct UserMHI), MEMF_ANY | MEMF_CLEAR))){
 		goto end;
 	}
 	if (!(usr->std = AllocVec(sizeof(struct IOStdReq), MEMF_PUBLIC | MEMF_CLEAR))){
 		goto end;
 	}
+	usr->version = LIBDEVMAJOR << 8 | LIBDEVMINOR;
+	usr->drvPort = dat->drvPort;
 	usr->task = task;
 	usr->signal = mhisignal;
 
@@ -151,11 +162,18 @@ APTR    __saveds __asm MHIGetEmpty     (register __a3 APTR handle, register __a6
 
 UBYTE   __saveds __asm MHIGetStatus    (register __a3 APTR handle, register __a6 struct LibDevBase *base)
 {
+	UBYTE status = MHIF_STOPPED;
+	
 	struct VSData *dat = (struct VSData*)base->libData;
-	if (dat->status & VS_NOBUFF){
-		((struct UserMHI*)handle)->status = MHIF_OUT_OF_DATA;
+	if (dat->status & VS_PLAYING | VS_PAUSED == VS_PLAYING){
+		status = MHIF_PLAYING;
+	}else{
+		status = MHIF_PAUSED;
 	}
-	return ((struct UserMHI*)handle)->status;
+	if (dat->status & VS_NOBUFF){
+		status = MHIF_OUT_OF_DATA;
+	}
+	return status;
 }
 
 VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6 struct LibDevBase *base)
@@ -165,11 +183,7 @@ VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6
 	
 	D(DebugPrint(DEBUG_LEVEL, "MHIPlay: called\n"));
 	usr->std->io_Command = CMD_START;
-	PutMsg(dat->drvPort, (struct Message *)usr->std);
-	WaitPort(usr->std->io_Message.mn_ReplyPort);
-	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
-	
-	((struct UserMHI*)handle)->status = MHIF_PLAYING;
+	sendAndWait(dat, usr->std);
 }
 
 VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6 struct LibDevBase *base)
@@ -182,11 +196,8 @@ VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6
 	D(DebugPrint(DEBUG_LEVEL, "MHIStop: called\n"));
 	
 	usr->std->io_Command = CMD_RESET;
-	PutMsg(dat->drvPort, (struct Message *)usr->std);
-	WaitPort(usr->std->io_Message.mn_ReplyPort);
-	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
+	sendAndWait(dat, usr->std);
 
-	((struct UserMHI*)handle)->status = MHIF_STOPPED;
 	ObtainSemaphore(&dat->sem);
 	removeAllChunks(dat);
 	ReleaseSemaphore(&dat->sem);
@@ -194,27 +205,20 @@ VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6
 
 VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6 struct LibDevBase *base)
 {
+	UBYTE status = MHIF_STOPPED;
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSData *dat = (struct VSData*)base->libData;
 	
 	D(DebugPrint(DEBUG_LEVEL, "MHIPause: called\n"));
 	
-	if (((struct UserMHI*)handle)->status == MHIF_PAUSED){
+	status = MHIGetStatus(handle, base);
+	
+	if (status == MHIF_PAUSED){
 		usr->std->io_Command = CMD_START; // resume from paused
 	}else{
 		usr->std->io_Command = CMD_STOP; // stop/pause playback
 	}
-	PutMsg(dat->drvPort, (struct Message *)usr->std);
-	WaitPort(usr->std->io_Message.mn_ReplyPort);	
-	while(GetMsg(usr->std->io_Message.mn_ReplyPort));
-	
-	if(((struct UserMHI*)handle)->status == MHIF_PAUSED){
-		((struct UserMHI*)handle)->status = MHIF_PLAYING;
-	}else{
-		if(((struct UserMHI*)handle)->status == MHIF_PLAYING){
-			((struct UserMHI*)handle)->status = MHIF_PAUSED;
-		}
-	}
+	sendAndWait(dat, usr->std);
 }
 
 ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6 struct LibDevBase *base)
@@ -278,13 +282,6 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 		default:
 			return MHIF_UNSUPPORTED;
 	}
-}
-
-__inline void sendAndWait(struct VSData *dat, struct IOStdReq *std)
-{
-	PutMsg(dat->drvPort, (struct Message *)std);
-	WaitPort(std->io_Message.mn_ReplyPort);
-	while(GetMsg(std->io_Message.mn_ReplyPort));
 }
 
 VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0 UWORD param, register __d1 ULONG value, register __a6 struct LibDevBase *base)

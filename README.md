@@ -1,5 +1,5 @@
 # SPIAudio
-SPI MHI library 1.3 for the VS10X3 SPIder device. Now supports both VS1053 and VS1063 chipsets. 
+SPI MHI library 1.4 for the VS10X3 SPIder device. Now supports both VS1053 and VS1063 chipsets. 
 VS1063 offers some improved format support, but drops MIDI (no implementation in driver anyway) and MPEG layer 1. It has a slight boost in communication speeds with SPIder.
 The most noticable is the support for 5 band EQ in AmigaAmp. VS1053 only support bass and treble at 64 and 16k, and it's a bit weak. VS1063 kicks in across bands 64, 250, 1k, 4k and 16k.
 

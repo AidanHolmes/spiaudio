@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 	std->io_Command = CMD_START; // start playback
 	PutMsg(vsdat->drvPort, (struct Message *)std);
 	WaitPort(std->io_Message.mn_ReplyPort);	
-	GetMsg(std->io_Message.mn_ReplyPort); //while(GetMsg(std->io_Message.mn_ReplyPort));
+	while(GetMsg(std->io_Message.mn_ReplyPort));
 	
 	printf("Note that running this test app could break any MHI instance also running\nPress CTRL-C to pause\n");
 	for ( ; ; ){

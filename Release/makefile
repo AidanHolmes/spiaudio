@@ -2,7 +2,7 @@
 AMINETNAME = SPIAudio
 DEVICENAME = mhispiaudio
 LIBDEVMAJOR = 1
-LIBDEVMINOR = 3
+LIBDEVMINOR = 4
 LIBDEVDATE = "1.1.2025"
 
 LIBDEVNAME = $(DEVICENAME).device
@@ -12,61 +12,78 @@ LIBTESTBIN = testlib
 
 TESTBIN = audio-test
 
+VISUALBIN = spidervis
+
 SPIDERHOME=//lib/spiderdev
 SPIDERLIBH=$(SPIDERHOME)/Src
 SPIDERLIBBUILD=$(SPIDERHOME)/$(BUILD)/Bin/spiderdev.lib
+AMIGAUILIB=//lib/amigaui
+AMIGAUILIBH=$(AMIGAUILIB)/Src
+AMIGAUILIBBUILD=$(AMIGAUILIB)/$(BUILD)/Bin/ui.lib
 MHI=//lib/mhi_dev
 MHI_H=$(MHI)/Include
 
-SRC = /Src/
-BIN = Bin/
-OBJ = Obj/
-OBJSAUD = $(OBJ)timing.o $(OBJ)debug.o $(OBJ)vs1053.o
-OBJSLIB = $(OBJ)libdev.o $(OBJ)spiaudiolib.o 
-OBJSBIN = $(OBJ)$(TESTBIN).o
-OBJSLIBBIN = $(OBJ)$(LIBTESTBIN).o
+SRC = /Src
+BIN = Bin
+OBJ = Obj
+OBJSAUD = $(OBJ)/timing.o $(OBJ)/debug.o $(OBJ)/vs1053.o
+OBJSLIB = $(OBJ)/libdev.o $(OBJ)/spiaudiolib.o 
+OBJSBIN = $(OBJ)/$(TESTBIN).o
+OBJSVIS = $(OBJ)/$(VISUALBIN).o
+OBJSLIBBIN = $(OBJ)/$(LIBTESTBIN).o $(OBJ)/timing.o $(OBJ)/debug.o
 
-EXTRA_H = IncludeDirectory=$(SPIDERLIBH) IncludeDirectory=$(MHI_H)
+EXTRA_H = IncludeDirectory=$(SPIDERLIBH) IncludeDirectory=$(MHI_H) IncludeDirectory=$(AMIGAUILIBH)
 DEFSTD = DEFINE=AS_LIBRARY DEFINE=LIBDEVMAJOR=$(LIBDEVMAJOR) DEFINE=LIBDEVMINOR=$(LIBDEVMINOR) DEFINE=LIBDEVDATE=$(LIBDEVDATE) DEFINE=LIBDEVNAME="$(LIBDEVNAME)"
 
 # parameters
-SCOPTS = DEFINE=VS10XX_USE_INTERRUPTS=0 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
-all: $(BIN)$(TESTBIN) $(BIN)$(LIBDEVNAME) $(BIN)$(LIBTESTBIN)
+SCOPTS = nocheckabort DEFINE=VS10XX_USE_INTERRUPTS=1 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
+all: $(BIN)/$(TESTBIN) $(BIN)/$(LIBDEVNAME) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
 
+dirs:
+	- makedir $(BIN)
+	- makedir $(OBJ)
+	
 clean:
-   - delete $(OBJ)\#?.o $(OBJ)\#?.asm $(BIN)\#?.lnk $(BIN)\#?.info $(BIN)\#?.map $(BIN)\#?.gst $(BIN)$(LIBDEVNAME) $(BIN)$(TESTBIN) $(BIN)$(LIBTESTBIN)
+   - delete $(OBJ)/\#?.o $(OBJ)/\#?.asm $(BIN)/\#?.lnk $(BIN)/\#?.info $(BIN)/\#?.map $(BIN)/\#?.gst $(BIN)/$(LIBDEVNAME) $(BIN)/$(TESTBIN) $(BIN)/$(LIBTESTBIN)
 
 install:
-	- copy $(BIN)$(LIBDEVNAME) DEVS:
+	- makedir LIBS:MHI
+	copy $(BIN)/$(LIBDEVNAME) LIBS:MHI/
 	
-lib: $(BIN)$(LIBDEVNAME)
-	copy $? /$(AMINETNAME)/$(LIBDEVNAME)
+lib: $(BIN)/$(LIBDEVNAME) $(BIN)/$(VISUALBIN)
+	copy $(BIN)/$(LIBDEVNAME) /$(AMINETNAME)/$(LIBDEVNAME)
+	copy $(BIN)/$(VISUALBIN) /$(AMINETNAME)/$(VISUALBIN)
 
-$(BIN)$(LIBDEVNAME): $(OBJSLIB) $(OBJSAUD)
+$(BIN)/$(LIBDEVNAME): $(OBJSLIB) $(OBJSAUD)
 	sc link to $@ $(OBJSLIB) $(OBJSAUD) Library=$(SPIDERLIBBUILD)
 	
-$(BIN)$(TESTBIN): $(OBJSAUD) $(OBJSBIN)
+$(BIN)/$(TESTBIN): $(OBJSAUD) $(OBJSBIN)
 	sc link to $@ $(OBJSAUD) $(OBJSBIN) Library=$(SPIDERLIBBUILD)
 	
-$(BIN)$(LIBTESTBIN): $(OBJSLIBBIN)
+$(BIN)/$(LIBTESTBIN): $(OBJSLIBBIN)
 	sc link to $@ $(OBJSLIBBIN)
 	
+$(BIN)/$(VISUALBIN): $(OBJSVIS)
+	sc link to $@ $(OBJSVIS) Library=$(AMIGAUILIBBUILD)
+	
 .c.o:
-	sc $(SCOPTS) $(DEFSTD) $(EXTRA_H) $? ObjectName=$(OBJ)
+	sc $(SCOPTS) $(DEFSTD) $(EXTRA_H) $? ObjectName=$(OBJ)/
 	
 .a.o:
-	sc $? ObjectName=$(OBJ)
+	sc $? ObjectName=$(OBJ)/
    
-$(OBJ)timing.o: $(SRC)timing.c 
+$(OBJ)/timing.o: $(SRC)/timing.c 
 
-$(OBJ)spiaudiolib.o: $(SRC)spiaudiolib.c 
+$(OBJ)/spiaudiolib.o: $(SRC)/spiaudiolib.c 
 
-$(OBJ)debug.o: $(SRC)debug.c 
+$(OBJ)/debug.o: $(SRC)/debug.c 
 
-$(OBJ)vs1053.o: $(SRC)vs1053.c
+$(OBJ)/vs1053.o: $(SRC)/vs1053.c
 
-$(OBJ)libdev.o: $(SRC)libdev.c
+$(OBJ)/libdev.o: $(SRC)/libdev.c
 
-$(OBJ)$(TESTBIN).o: $(SRC)$(TESTBIN).c
+$(OBJ)/$(TESTBIN).o: $(SRC)/$(TESTBIN).c
 
-$(OBJ)$(LIBTESTBIN).o: $(SRC)$(LIBTESTBIN).c
+$(OBJ)/$(LIBTESTBIN).o: $(SRC)/$(LIBTESTBIN).c
+
+$(OBJ)/$(VISUALBIN).o: $(SRC)/$(VISUALBIN).c

@@ -19,12 +19,61 @@
 #include <proto/exec.h>
 #include <stdio.h>
 #include <string.h>
+#include "timing.h"
+#include "vs1053.h"
+
+int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
+void __regargs __chkabort(void) { ; } /* really */
+
+struct MinHandle{
+	UWORD version;
+	struct MsgPort *port;
+};
+
+static void waitStd(struct IOStdReq *std, struct MsgPort *port)
+{
+	PutMsg(port, (struct Message *)std);
+	WaitPort(std->io_Message.mn_ReplyPort);	
+	while(GetMsg(std->io_Message.mn_ReplyPort));
+}
+
+static void doVUMeter(struct IOStdReq *std, struct MsgPort *port)
+{
+	struct VSParameterData param;
+	
+	param.parameter = VS_PARAM_VUMETER;
+	param.value = 0;
+	std->io_Command = CMD_VSAUDIO_PARAMETER; // 
+	std->io_Length = sizeof(struct VSParameterData);
+	std->io_Data = &param;
+	waitStd(std, port);
+	printf("Left %udb, Right %udb\n",param.actual >> 8, param.actual & 0x00FF);
+}
+
+static void doInfo(struct IOStdReq *std, struct MsgPort *port)
+{
+	struct VSMediaInfo info;
+	
+	std->io_Command = CMD_VSAUDIO_INFO; // 
+	std->io_Length = sizeof(struct VSMediaInfo);
+	std->io_Data = &info;
+	waitStd(std, port);
+	printf("Hardware attached is %s\n", info.hwVersion==4?"VS1053":"VS1063");
+	printf("HDAT0 0x%04X, HDAT1 0x%04X\n", info.hdat0, info.hdat1);
+	printf("Playing %s at bitrate %dHz\n", info.audata&0x0001?"stereo":"mono", (info.audata >> 1)*2);
+	printf("OGG/WAV position at %dMsec\n", info.positionMsec);
+}
 
 int main (int argc, char **argv)
 {
 	struct Library *MHIBase = NULL ;
 	APTR handle = NULL ;
 	BYTE mySig = -1;
+	struct IORequest *tmr = NULL;
+	ULONG sigmask = 0, sigs = 0;
+	struct MinHandle *drv;
+	UWORD buildVersion = LIBDEVMAJOR << 8 | LIBDEVMINOR;
+	struct IOStdReq std ;
 	
 	if (!(MHIBase = OpenLibrary("LIBS:MHI/mhispiaudio.library", 0))){
 		printf("Cannot open MHI library\n");
@@ -41,12 +90,53 @@ int main (int argc, char **argv)
 		goto exit;
 	}
 	
+	if (!(tmr = openTimer())){
+		printf("Failed to open timer resource\n");
+		goto exit;
+	}
+	
+	if (!(std.io_Message.mn_ReplyPort = CreateMsgPort())){
+		goto exit;
+	}else{
+		std.io_Message.mn_Length = sizeof(struct IOStdReq) ;
+		std.io_Message.mn_Node.ln_Type = NT_MESSAGE;
+		std.io_Command = 0;
+	}
+	
+	drv = (struct MinHandle*)handle;
+	if (drv->version != buildVersion){
+		printf("Driver version incorrect, this test built for 0x%04X, received 0x%04X\n", buildVersion, drv->version);
+		goto exit;
+	}
+	
+	sigmask = SIGBREAKF_CTRL_C | (1 << mySig) ;
+	for ( ; ; ){
+		sigs = timerWaitTO(tmr, 1,0,sigmask);
+		if (sigs & (1 << mySig)){
+			
+		}
+		if (sigs & SIGBREAKF_CTRL_C){
+			break;
+		}
+		if (!sigs){
+			// Timer completed
+			doVUMeter(&std, drv->port);
+			doInfo(&std, drv->port);
+		}
+	}
+	
 exit:
+	if (std.io_Message.mn_ReplyPort){
+		DeleteMsgPort(std.io_Message.mn_ReplyPort);
+	}
 	if (handle){
 		MHIFreeDecoder  (handle);
 	}
 	if (mySig >=0){
 		FreeSignal(mySig);
+	}
+	if (tmr){
+		timerCloseTimer(tmr);
 	}
 	CloseLibrary(MHIBase);
 }	

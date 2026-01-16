@@ -54,6 +54,7 @@
 #define SM_LINE1		0x4000
 
 #define SS_DO_NOT_JUMP	0x8000
+#define SS_VUMETER		0x0200
 
 // Memory locations
 #define VSMEM_ENDFILLBYTE			0x1E06
@@ -61,6 +62,7 @@
 #define ADDR_REG_GPIO_VAL_R  		0xc018
 #define ADDR_REG_GPIO_ODATA_RW  	0xc019
 #define ADDR_REG_I2S_CONFIG_RW  	0xc040
+#define ADDR_REG_POSITIONMSEC		0x1E27
 // VS1063 address locations
 #define ADDR63_PLAYMODE 			0x1E09
 #define ADDR63_ADMIX_GAIN			0x1E0D
@@ -76,7 +78,10 @@
 #define ADDR63_EQ5FREQ4				0x1E1A
 #define ADDR63_EQ5LEVEL5			0x1E1B
 #define ADDR63_EQ5UPDATE			0x1E1C
+#define ADDR63_VUMETER				0x1E0C
 
+
+#define VS63PLAYMODE_VUMETER			(1 << 2)
 #define VS63PLAYMODE_ADMIX				(1 << 3)
 #define VS63PLAYMODE_5BAND				(1 << 5)
 
@@ -101,6 +106,8 @@ static void writeRegister(UBYTE address, UWORD data);
 static UWORD readRegister(UBYTE address);
 static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec);
 static UWORD writeMemoryWord(struct VSData *dat, UWORD address, UWORD value);
+static UWORD readMemoryWord(struct VSData *dat, UWORD address);
+static ULONG readMemoryLong(struct VSData *dat, UWORD address);
 
 static void _resetList(struct List *l)
 {
@@ -153,8 +160,12 @@ static void initEqualiser(struct VSData *dat)
 
 static void setEqualiser(struct VSData *dat, struct VSParameterData *param)
 {
-	WORD i=0, val = ((param->actual / 3) - 16)*2;
+	WORD i=0, val ;
 	
+	if (param->value > 100){
+		param->actual = 100;
+	}
+	val = ((param->actual / 3) - 16)*2;
 	if (dat->version == VERSION_VS1053 && (param->parameter == VS_PARAM_BASS || param->parameter == VS_PARAM_TREBLE)){
 		// Treble over 10kHz and bass under 60 Hz
 		// 0 to 100 with 50 default/normal. Cannot cut so only 50-100 used and anything else is normal
@@ -198,6 +209,50 @@ static void setEqualiser(struct VSData *dat, struct VSParameterData *param)
 		D(DebugPrint(DEBUG_LEVEL,"setEqualiser: VS1063 eq %d = %d\n", i, val));
 		writeMemoryWord(dat, ADDR63_EQ5LEVEL1+(i*2), val);
 		writeMemoryWord(dat, ADDR63_EQ5UPDATE, 1);
+	}
+}
+
+static void doAdmix(struct VSData *dat, struct VSParameterData *param)
+{
+	BYTE gain;
+	
+	gain = (param->value & 0x00FF);
+	
+	if (gain > -3){
+		// This is a status query
+		if (dat->version == VERSION_VS1053){
+			param->actual = (BYTE)readRegister(REG_AICTRL0);
+		}else if (dat->version == VERSION_VS1063){
+			param->actual = (BYTE)readMemoryWord(dat, ADDR63_ADMIX_GAIN);
+		}
+		param->actual |= dat->admix?0x0100:0x0000;
+	}else{
+		if ((param->value & 0xFF00) != 0){
+			// Disable
+			if (dat->version == VERSION_VS1053){
+				writeRegister(REG_AIADDR, 0x0F01);
+			}else if (dat->version == VERSION_VS1063){
+				if (dat->admix){
+					dat->playMode &= ~VS63PLAYMODE_ADMIX ;
+					writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
+					dat->admix = FALSE ;
+				}
+			}
+		}else{
+			// Enable
+			if (dat->version == VERSION_VS1053){
+				writeRegister(REG_AIADDR, 0x0F00);
+				writeRegister(REG_AICTRL0, (WORD)gain);
+			}else if (dat->version == VERSION_VS1063){
+				if (!dat->admix){
+					dat->playMode |= VS63PLAYMODE_ADMIX ;
+					writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
+					dat->admix = TRUE ;
+				}
+				writeMemoryWord(dat, ADDR63_ADMIX_GAIN, (WORD)gain);
+			}
+		}
+		param->actual = param->value;
 	}
 }
 
@@ -256,21 +311,46 @@ static void doParameter(struct VSData *dat, struct IOStdReq *std)
 		case VS_PARAM_MID:
 		case VS_PARAM_MIDBASS:
 		case VS_PARAM_MIDHIGH:
-			if (param->value > 100){
-				param->actual = 100;
-			}
 			setEqualiser(dat, param);
+			break;
+		case VS_PARAM_ADMIX:
+			doAdmix(dat, param);
+			break;
+		case VS_PARAM_VUMETER:
+			if(dat->version == VERSION_VS1053){
+				param->actual = readRegister(REG_AICTRL3); // 1db resolution
+			}else if (dat->version == VERSION_VS1063){
+				param->actual = readMemoryWord(dat, ADDR63_VUMETER); // 3db resolution
+				param->actual *= 3; // align to same range as VS1053 0-96
+			}
 			break;
 		default:
 			break;
 	}
 }
 
+static void getMediaInfo(struct VSData *dat, struct IOStdReq *std)
+{
+	struct VSMediaInfo *info = NULL;
+	
+	info = (struct VSMediaInfo*)std->io_Data;
+	
+	if (std->io_Length != sizeof(struct VSMediaInfo)){
+		std->io_Error = IOERR_BADLENGTH; // use standard errors from exec/error.h
+		return;
+	}
+	info->hwVersion = dat->version;
+	info->hdat0 = readRegister(REG_HDAT0);
+	info->hdat1 = readRegister(REG_HDAT1);
+	info->audata = readRegister(REG_AUDATA);
+	info->positionMsec = (LONG)readMemoryLong(dat, ADDR_REG_POSITIONMSEC);
+}
+
 static void __saveds workerTask(void)
 {
 	struct Task *thisTask = NULL;
 	struct VSData *dat = NULL ;
-	struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+	//struct ExecBase *SysBase = *(struct ExecBase **)4UL;
 	BOOL bSetupOK = FALSE;
 	ULONG sigs = 0, sigmask = 0;
 	struct IOStdReq *std = NULL ;
@@ -372,6 +452,9 @@ static void __saveds workerTask(void)
 						break; 
 					case CMD_VSAUDIO_PARAMETER:
 						doParameter(dat, std);
+						break;
+					case CMD_VSAUDIO_INFO:
+						getMediaInfo(dat, std);
 						break;
 					default:
 						ior->io_Error = IOERR_NOCMD;
@@ -586,13 +669,13 @@ __inline static ULONG readMemoryLong(struct VSData *dat, UWORD address)
 	UWORD hi[2], lo[2];
 	UBYTE i=0;
 	hi[i] = readMemoryWord(dat,address);
-	lo[i] = readMemoryWord(dat,address+1);
+	lo[i] = readRegister(REG_WRAM);
 	
 	// Attempt stable match or give up and return values read (may be wrong!)
 	for(i=1; i < 4; i++){
 		hi[i&0x01] = readMemoryWord(dat,address);
-		lo[i&0x01] = readMemoryWord(dat,address+1);
-		if(hi[0] != hi[1] || lo[0] != lo[1]){
+		lo[i&0x01] = readRegister(REG_WRAM);
+		if(hi[0] == hi[1] && lo[0] == lo[1]){
 			break;
 		}
 	}
@@ -1250,6 +1333,7 @@ BOOL resetVS1053(struct VSData *dat)
 		writeMemoryWord(dat, ADDR63_ADMIX_CONFIG, VS63ADMIXER_RATE48 | VS63ADMIXER_MODESTEREO);
 		dat->playMode |= VS63PLAYMODE_ADMIX;
 	}
+	dat->admix = TRUE;
 #endif
 
 	// Enable correct play mode for VS1063
@@ -1257,6 +1341,11 @@ BOOL resetVS1053(struct VSData *dat)
 		initEqualiser(dat); // Set frequencies
 		writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
 	}
+	
+	// Enable VU meter for VS1053
+	if (dat->version == VERSION_VS1053){
+		writeRegister(REG_STATUS, readRegister(REG_STATUS) | SS_VUMETER);
+	}// Already set for VS1063 in PlayMode
 	
 	return TRUE;
 }
@@ -1312,7 +1401,7 @@ struct VSData* initVS1053(LONG priority)
 	dat->sig = -1;
 	dat->initspi = FALSE ;
 	dat->panning = 50;
-	dat->playMode = VS63PLAYMODE_5BAND; // All desired defaults for VS1063
+	dat->playMode = VS63PLAYMODE_5BAND | VS63PLAYMODE_VUMETER; // All desired defaults for VS1063
 	
 	if (!(callingTmr = openTimer())){
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: couldn't open timer\n"));

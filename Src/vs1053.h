@@ -40,16 +40,27 @@
 #define VS_PARAM_MID		5
 #define VS_PARAM_MIDBASS	6
 #define VS_PARAM_MIDHIGH	7
+#define VS_PARAM_ADMIX		8		// Not in MHI params, but for advanced enable/disable and gain (top byte for on/off, lower for gain)
+#define VS_PARAM_VUMETER	9		// Not in MHI params, raw vuMeter return from VS10XX memory
 
 // Additional commands
 #define CMD_VSAUDIO_PARAMETER		CMD_NONSTD + 0
-
+#define CMD_VSAUDIO_INFO			CMD_NONSTD + 1
 
 struct VSParameterData
 {
 	UWORD parameter;	// Parameter to change
-	ULONG value;	// Value requested
-	ULONG actual;	// Actual value used (return)
+	ULONG value;		// Value requested
+	ULONG actual;		// Actual value used (return)
+};
+
+struct VSMediaInfo
+{
+	UWORD hwVersion; // 4 or 6
+	UWORD hdat0;
+	UWORD hdat1;
+	UWORD audata;
+	LONG positionMsec; // OGG and WMA
 };
 
 // This can be overridden at compile time
@@ -84,9 +95,9 @@ struct VSChunk
 struct VSData
 {
 	struct IORequest *tmr;
+	struct MsgPort *drvPort;
 	struct Task *drvTask;
 	struct Task *callingTask; // temp for start up
-	struct MsgPort *drvPort;
 	struct SignalSemaphore sem;
 	struct VSChunk *currentChunk;
 	struct ClockportConfig config;
@@ -106,6 +117,7 @@ struct VSData
 	UBYTE bass;
 	UBYTE treb;
 	UBYTE version;
+	BOOL admix;
 };
 
 

@@ -2,8 +2,8 @@ AMINETNAME = SPIAudio
 DEVICENAME = mhispiaudio
 # Version - these values are mastered here and overwrite the generated values in makefiles for Debug and Release
 LIBDEVMAJOR = 1
-LIBDEVMINOR = 3
-LIBDEVDATE = "09.01.2026"
+LIBDEVMINOR = 4
+LIBDEVDATE = "10.01.2026"
 LIBDEVNAME = $(DEVICENAME).library
 
 LHADIR = $(AMINETNAME)
@@ -16,10 +16,10 @@ DEBUG = $(DEBUGDIR)/makefile
 #optdepth
 # defines the maximum depth of function calls to be Mined. The
 # range is 0 to 6, and the default value is 3.
-PRODCOPTS = DEFINE=VS10XX_USE_INTERRUPTS=1 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
+PRODCOPTS = nocheckabort DEFINE=VS10XX_USE_INTERRUPTS=1 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
 
 # debug version build options
-DBGCOPTS = DEFINE=VS10XX_USE_INTERRUPTS=1 DEFINE=_DEBUG DEFINE=DEBUG_SERIAL debug=full NOSTACKCHECK
+DBGCOPTS = nocheckabort DEFINE=VS10XX_USE_INTERRUPTS=1 DEFINE=_DEBUG DEFINE=DEBUG_SERIAL debug=full NOSTACKCHECK
 
 all: $(RELEASE) $(DEBUG) $(AMINETNAME).lha includes
 	execute <<
@@ -36,7 +36,8 @@ all: $(RELEASE) $(DEBUG) $(AMINETNAME).lha includes
 lib: $(AMINETNAME).lha
 
 install: $(AMINETNAME).lha
-	copy $(DEVICENAME)/$(LIBDEVNAME) DEVS:
+	- makedir LIBS:MHI
+	copy $(AMINETNAME)/$(LIBDEVNAME) LIBS:MHI/
 	
 clean:
 	execute <<
@@ -49,7 +50,7 @@ clean:
 		smake clean LIBDEVNAME=$(LIBDEVNAME) DEVICENAME=$(DEVICENAME)
 		cd /
 		<
-	delete $(AMINETNAME).lha $(AMINETNAME)/$(LIBDEVNAME) $(AMINETNAME)/Include/C/pragma/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/C/proto/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/Assembly/lvo/\#? $(AMINETNAME)/FD/\#?
+	delete $(AMINETNAME).lha $(AMINETNAME)/$(LIBDEVNAME) $(AMINETNAME)/spidervis $(AMINETNAME)/Include/C/pragma/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/C/proto/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/Assembly/lvo/\#? $(AMINETNAME)/FD/\#?
 	
 $(RELEASE): makefile.master makefile
 	copy makefile.master $(RELEASE)
