@@ -44,18 +44,45 @@ I did look at higher priorties but this causes some unexpected issues with signa
 
 ## Build
 Requires fd2pragma 2.171 [Aminet Download](https://aminet.net/package/dev/misc/fd2pragma).
-Code is setup to build using SAS/C 6.5 and tools such as **oml**, **smake** and **splat** which come with SAS/C. 
 
 Install https://github.com/AidanHolmes/spiderdev into a sibling directory called lib. Follow the build guide. 
+Download and install [MHI_DEV](https://aminet.net/driver/audio/mhi_dev.lha) into sibling lib directory
 
 Like this:
 ```
 Projects/
   lib/
     spiderdev
+	mhi_dev
   spiaudio
 ```
+Requires 1.0.2 SPIder firmware
+
+### SAS/C
+Code is setup to build using SAS/C 6.5 and tools such as **oml**, **smake** and **splat** which come with SAS/C. 
 
 Type **smake** in spiaudio directory to build Release and Debug targets
 
-Requires 1.0.2 SPIder firmware
+### VBCC
+Fd2pragma download only comes with an Amiga binary executable.
+For cross compiler users you will need to build **fd2pragma** from source to then run on Linux x86 platforms.
+Building **fd2pragma** is easy using the Aminet source code:
+```
+gcc -Wall -O3 -o fd2pragma fd2pragma.c
+```
+The **makefile.vbcc** assumes **/opt/amiga/tools/** location used for **fd2pragma**. Copy there or if you install elsewhere then update the **makefile.vbcc** to reference it.
+Once **fd2pragma** has been built and copied to your Linux system files then find the **fd2pragma.types** file and copy to **/usr/local/share**. You will need to do this as root and ensure it is readable.
+
+MHI doesn't come with inline VBCC headers. These need building with **fd2pragma**.
+Copy **fd2pragma.types** to current directory in **lib/mhi_dev**.
+Run:
+```
+mkdir Include/inline
+fd2pragma --infile=Include/fd/mhi_lib.fd --clib=Include/clib/mhi_protos.h --special=70 --to=Include/inline
+```
+
+Finally you can build everything from the root **spiaudio** directory with:
+```
+make -f makefile.vbcc
+```
+This creates Release and Build targets. As Linux doesn't have a proper LHA packer, the archive is compressed and tar'd.

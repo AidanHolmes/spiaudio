@@ -14,6 +14,7 @@ TESTBIN = audio-test
 
 VISUALBIN = spidervis
 
+NDKHOME=//lib/NDK3.2R4
 SPIDERHOME=//lib/spiderdev
 SPIDERLIBH=$(SPIDERHOME)/Src
 SPIDERLIBBUILD=$(SPIDERHOME)/$(BUILD)/Bin/spiderdev.lib
@@ -32,19 +33,19 @@ OBJSBIN = $(OBJ)/$(TESTBIN).o
 OBJSVIS = $(OBJ)/$(VISUALBIN).o
 OBJSLIBBIN = $(OBJ)/$(LIBTESTBIN).o $(OBJ)/timing.o $(OBJ)/debug.o
 
-EXTRA_H = IncludeDirectory=$(SPIDERLIBH) IncludeDirectory=$(MHI_H) IncludeDirectory=$(AMIGAUILIBH)
-DEFSTD = DEFINE=AS_LIBRARY DEFINE=LIBDEVMAJOR=$(LIBDEVMAJOR) DEFINE=LIBDEVMINOR=$(LIBDEVMINOR) DEFINE=LIBDEVDATE=$(LIBDEVDATE) DEFINE=LIBDEVNAME="$(LIBDEVNAME)"
+EXTRA_H = IncludeDirectory=$(SPIDERLIBH) IncludeDirectory=$(MHI_H) IncludeDirectory=$(AMIGAUILIBH) IncludeDirectory=$(NDKHOME)/Include_H
+DEFSTD = DEFINE=__NOLIBBASE__ DEFINE=AS_LIBRARY DEFINE=LIBDEVMAJOR=$(LIBDEVMAJOR) DEFINE=LIBDEVMINOR=$(LIBDEVMINOR) DEFINE=LIBDEVDATE=$(LIBDEVDATE) DEFINE=LIBDEVNAME=$(LIBDEVNAME)
 
 # parameters
 SCOPTS = nocheckabort DEFINE=VS10XX_USE_INTERRUPTS=1 NOSTACKCHECK OPTIMIZE Optimizerinline OptimizerInLocal OptimizerLoop OptimizerComplexity=30 OptimizerGlobal OptimizerDepth=6 OptimizerTime OptimizerSchedule OptimizerPeephole
-all: $(BIN)/$(TESTBIN) $(BIN)/$(LIBDEVNAME) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
+all: dirs $(BIN)/$(TESTBIN) $(BIN)/$(LIBDEVNAME) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
 
 dirs:
 	- makedir $(BIN)
 	- makedir $(OBJ)
 	
 clean:
-   - delete $(OBJ)/\#?.o $(OBJ)/\#?.asm $(BIN)/\#?.lnk $(BIN)/\#?.info $(BIN)/\#?.map $(BIN)/\#?.gst $(BIN)/$(LIBDEVNAME) $(BIN)/$(TESTBIN) $(BIN)/$(LIBTESTBIN)
+   - delete $(OBJ)/\#?.o $(OBJ)/\#?.asm $(BIN)/\#?.lnk $(BIN)/\#?.info $(BIN)/\#?.map $(BIN)/\#?.gst $(BIN)/$(LIBDEVNAME) $(BIN)/$(TESTBIN) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
 
 install:
 	- makedir LIBS:MHI

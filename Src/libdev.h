@@ -20,9 +20,10 @@
 #include <exec/exec.h>
 #include <proto/exec.h>
 #include <exec/semaphores.h>
+#include "compatibility.h"
 
 #ifndef LIBDEVNAME
-#define LIBDEVNAME "none.device"
+#define LIBDEVNAME none.device
 #endif
 
 #ifndef LIBDEVMAJOR
@@ -43,16 +44,16 @@
 
 struct LibDevBase;
 
-APTR    __saveds __asm MHIAllocDecoder (register __a0 struct Task *task , register __d0 ULONG mhisignal, register __a6 struct LibDevBase *base);
-VOID    __saveds __asm MHIFreeDecoder  (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-BOOL    __saveds __asm MHIQueueBuffer  (register __a3 APTR handle, register __a0 APTR buffer, register __d0 ULONG size, register __a6 struct LibDevBase *base);
-APTR    __saveds __asm MHIGetEmpty     (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-UBYTE   __saveds __asm MHIGetStatus    (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6 struct LibDevBase *base);
-ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6 struct LibDevBase *base);
-VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0 UWORD param, register __d1 ULONG value, register __a6 struct LibDevBase *base);
+__SAVE_DS__ __ASM__ APTR     MHIAllocDecoder (__REG__(a0, struct Task*) task , __REG__(d0, ULONG) mhisignal, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ VOID     MHIFreeDecoder  (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ BOOL     MHIQueueBuffer  (__REG__(a3, APTR) handle, __REG__(a0, APTR) buffer, __REG__(d0, ULONG) size, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ APTR     MHIGetEmpty     (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ UBYTE    MHIGetStatus    (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ VOID     MHIPlay         (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ VOID     MHIStop         (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ VOID     MHIPause        (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ ULONG    MHIQuery        (__REG__(d1, ULONG) query, __REG__(a6, struct LibDevBase*) base);
+__SAVE_DS__ __ASM__ VOID     MHISetParam     (__REG__(a3, APTR) handle, __REG__(d0, UWORD) param, __REG__(d1, ULONG) value, __REG__(a6, struct LibDevBase*) base);
 
 /* Customise base according to requirements */
 struct LibDevBase

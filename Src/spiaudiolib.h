@@ -18,11 +18,12 @@
 
 #include <exec/types.h>
 #include "libdev.h"
+#include "compatibility.h"
 
 
-struct LibDevBase* __saveds __asm libdev_library_open(register __a6 struct LibDevBase *base);
-struct LibDevBase* __saveds __asm libdev_initalise(register __a6 struct LibDevBase *base) ;
-void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base);
+__SAVE_DS__ struct LibDevBase* __ASM__ libdev_library_open(__REG__(a6, struct LibDevBase *) base);
+__SAVE_DS__ struct LibDevBase* __ASM__ libdev_initalise(__REG__(a6, struct LibDevBase *) base) ;
+__SAVE_DS__ void __ASM__ libdev_cleanup(__REG__(a6, struct LibDevBase *) base);
 
 
 #endif

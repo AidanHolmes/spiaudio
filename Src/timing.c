@@ -1,5 +1,6 @@
 #include "timing.h"
 #include "debug.h"
+#include "compatibility.h"
 
 static volatile UBYTE * const todl = (volatile UBYTE*)0xbfe801;
 static volatile UBYTE * const todm = (volatile UBYTE*)0xbfe901;
@@ -28,7 +29,7 @@ BOOL timerCalibrate(struct IORequest* tmr, ULONG *itersPer400ns)
 {
     register ULONG x;
     register ULONG scale = 0x8000;      // min iterations...
-    volatile register ULONG t = 1;
+    register volatile ULONG t = 1;
     struct timeval t1, t2;
     struct Device *TimerBase = tmr->io_Device;
 	
@@ -74,9 +75,9 @@ BOOL timerCalibrate(struct IORequest* tmr, ULONG *itersPer400ns)
     return TRUE;
 }
 
-__inline void timerWait400ns(ULONG itersPer400ns)
+__INLINE__ void timerWait400ns(ULONG itersPer400ns)
 {
-    volatile register ULONG t = 1;
+    register volatile ULONG t = 1;
 	ULONG ns = itersPer400ns;
     while (ns > 0){
         t = (((t + ns) * t) - ns) / ns;    // add, mul, sub, div, trivial benchmark.
@@ -84,7 +85,7 @@ __inline void timerWait400ns(ULONG itersPer400ns)
     }
 }
 
-__inline void setTimer(struct IORequest* tmr, ULONG secs, ULONG micro)
+__INLINE__ void setTimer(struct IORequest* tmr, ULONG secs, ULONG micro)
 {
 	// Stop old timers
 	if (!CheckIO(tmr) && tmr->io_Command == TR_ADDREQUEST){
@@ -98,7 +99,7 @@ __inline void setTimer(struct IORequest* tmr, ULONG secs, ULONG micro)
     SendIO(tmr);
 }
 
-__inline ULONG waitTO(struct IORequest* tmr, ULONG sigs)
+__INLINE__ ULONG waitTO(struct IORequest* tmr, ULONG sigs)
 {
 	ULONG sig = 1 << tmr->io_Message.mn_ReplyPort->mp_SigBit;
 	sigs = Wait(sigs | sig);
@@ -114,7 +115,7 @@ __inline ULONG waitTO(struct IORequest* tmr, ULONG sigs)
     return sigs & ~sig;
 }
 
-__inline ULONG timerWaitTO(struct IORequest* tmr, ULONG secs, ULONG micro, ULONG sigs)
+__INLINE__ ULONG timerWaitTO(struct IORequest* tmr, ULONG secs, ULONG micro, ULONG sigs)
 {
 	setTimer(tmr, secs, micro);
     return waitTO(tmr,sigs);

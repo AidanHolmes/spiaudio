@@ -81,6 +81,14 @@ $(AMINETNAME).lha: $(RELEASE)
 	lha -Qr -xr u $(AMINETNAME).lha $(LHADIR)
 	
 includes: Src/SFD/spiaudio_lib.sfd
+	- makedir "$(AMINETNAME)/FD"
+	- makedir "$(AMINETNAME)/Include"
+	- makedir "$(AMINETNAME)/Include/C"
+	- makedir "$(AMINETNAME)/Include/C/pragma"
+	- makedir "$(AMINETNAME)/Include/C/inline"
+	- makedir "$(AMINETNAME)/Include/C/proto"
+	- makedir "$(AMINETNAME)/Include/Assembly"
+	- makedir "$(AMINETNAME)/Include/Assembly/Ivo"
 	fd2pragma "Src/SFD/spiaudio_lib.sfd" 111 TO "$(AMINETNAME)/Include/C/clib" AUTOHEADER
 	fd2pragma "Src/SFD/spiaudio_lib.sfd" 110 TO "$(AMINETNAME)/FD"
 	fd2pragma "Src/SFD/spiaudio_lib.sfd" 6 TO "$(AMINETNAME)/Include/C/pragma"

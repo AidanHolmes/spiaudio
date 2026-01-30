@@ -1,4 +1,4 @@
-/* Copyright 2025 Aidan Holmes
+/* Copyright 2026 Aidan Holmes
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
 */
 
 #include <stdio.h>
-#include "vs1053.h"
-#include "spi.h"
 #include <exec/types.h>
 #include <exec/resident.h>
 #include <exec/exec.h>
@@ -24,46 +22,62 @@
 #include <proto/dos.h>
 #include <exec/io.h>
 #include <string.h>
+#include <proto/mhi.h>
+#include <libraries/mhi.h>
+#ifdef __VBCC__
+#include <inline/mhi_protos.h>
+#endif
 
-int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
-void __regargs __chkabort(void) { ; } /* really */
+// SAS/C using compiler instruction to stop CTRL-C handling. These conflict so commented out
+//int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
+//void __regargs __chkabort(void) { ; } /* really */
+
+#ifdef __VBCC__
+void __chkabort(void) { ; }
+#endif
 
 int main(int argc, char **argv)
 {
+	const int chunksAvailable = 5, bufSize = 1024;
+	struct Library *MHIBase = NULL, *DOSBase = NULL ;
 	ULONG sigs = 0, i=0 ;
 	LONG length;
-	struct VSData *vsdat = NULL;
 	char *musicFileName;
-	BPTR f = NULL;
-	const int chunksAvailable = 5, bufSize = 1024;
+	BPTR f = 0;
 	UBYTE *allMem = NULL, *buffer = NULL;
 	BYTE mySig = -1 ;
-	struct VSChunk *chunk = NULL;
-	struct IOStdReq *std = NULL ;
+	APTR handle = NULL ;
+	
+	//SetTaskPri(FindTask(0), 10);
+	if (!(MHIBase = OpenLibrary("LIBS:MHI/mhispiaudio.library", 0))){
+		printf("Cannot open LIBS:MHI/mhispiaudio.library\n");
+		goto exit;
+	}
+	
+	if (!(DOSBase = OpenLibrary("dos.library", 0))){
+		printf("Cannot open LIBS:MHI/mhispiaudio.library\n");
+		goto exit;
+	}
 	
 	if (argc >= 2){
 		musicFileName = argv[1];
 	}else{
 		printf("No arguments found. Provide name of music file\n") ;
-		return 1 ;
+		goto exit;
 	}
 	
 	if ((mySig = AllocSignal(-1)) < 0){
 		printf("Couldn't assign signal\n");
-		return 1;
+		goto exit;
 	}
+	
+	if (!(handle = MHIAllocDecoder (FindTask(NULL) , 1 << mySig))){
+		printf("Couldn't alloc MHI handle\n") ;
+		goto exit;
+	}
+	
 	if (!(f=Open(musicFileName, MODE_OLDFILE))){
 		printf("Couldn't open file %s\n", musicFileName);
-		goto exit;
-	}
-	
-	if (!(std = AllocVec(sizeof(struct IOStdReq), MEMF_PUBLIC | MEMF_CLEAR))){
-		printf("Cannot allocate required memory for IO\n");
-		goto exit;
-	}
-	
-	if (!(vsdat=initVS1053(0))){
-		printf("Failed to initialise VS1053\n");
 		goto exit;
 	}
 	
@@ -72,92 +86,69 @@ int main(int argc, char **argv)
 		goto exit;
 	}
 	if ((length= Read(f, allMem, bufSize * chunksAvailable))<0){
-		printf("Read failure, returned %d\n", length);
+		printf("%s read failure, returned %d\n", musicFileName, length);
 	}
 	for(i=0; i<length;i+=bufSize){
-		if (!addBuffer(vsdat, allMem + i, (length - (i+bufSize)) > bufSize? bufSize:length - (i+bufSize), FindTask(NULL), 1 << mySig)){
-			printf("Cannot add new buffer\n");
+		if (!(MHIQueueBuffer(handle, allMem + i, ((length - (i+bufSize)) > bufSize)? bufSize:(length - (i+bufSize))))){
+			printf("Error: cannot add a new buffer\n");
 			goto exit;
 		}
 	}
+	MHISetParam(handle, MHIP_VOLUME, 100);
+	MHIPlay(handle);
+	printf("Playing, waiting on sig bit %d\n", mySig);
 	
-	if (!(std->io_Message.mn_ReplyPort = CreateMsgPort())){
-		goto exit;
-	}else{
-		std->io_Message.mn_Length = sizeof(struct IOStdReq) ;
-		std->io_Message.mn_Node.ln_Type = NT_MESSAGE;
-		std->io_Command = 0;
-	}
-	
-	std->io_Command = CMD_START; // start playback
-	PutMsg(vsdat->drvPort, (struct Message *)std);
-	WaitPort(std->io_Message.mn_ReplyPort);	
-	while(GetMsg(std->io_Message.mn_ReplyPort));
-	
-	printf("Note that running this test app could break any MHI instance also running\nPress CTRL-C to pause\n");
 	for ( ; ; ){
 		sigs = Wait (SIGBREAKF_CTRL_C | (1 << mySig));
 		if (sigs & SIGBREAKF_CTRL_C){
-			printf("Pausing - press CTRL-C again to stop\n");
-			std->io_Command = CMD_STOP; // stop/pause playback
-			PutMsg(vsdat->drvPort, (struct Message *)std);
-			WaitPort(std->io_Message.mn_ReplyPort);	
-			while(GetMsg(std->io_Message.mn_ReplyPort));
+			printf("Stopping - press CTRL-C again to exit\n");
 			break;
 		}else{ // mySig triggered meaning new buffer or status change
-			//printf("%");
-			ObtainSemaphore(&vsdat->sem);
-			while (chunk=getUsedChunk(vsdat)){
-				resetChunk(chunk); // Just reuse existing chunk????
-				buffer = chunk->buffer; 
-				//removeChunk(chunk);
+			if ((buffer=MHIGetEmpty(handle))){
 				if ((length = Read(f, buffer, bufSize))<0){
-					printf("Read failure, returned %d\n", length);
-					ReleaseSemaphore(&vsdat->sem);
+					printf("%s read failure, returned error %d\n", musicFileName, length);
 					goto exit;
 				}else{
-					if (length > 0){
-						//printf("&");
-						updateChunk(vsdat, chunk, length, FindTask(NULL), 1 << mySig);
-						//if (!addBuffer(vsdat, buffer, length, FindTask(NULL), 1 << mySig)){
-						//	printf("Cannot add new buffer\n");
-						//	goto exit;
-						//}
+					if (length == 0){
+						// no more file to read
+						printf("Finished playing %s, press CTRL-C again to exit\n", musicFileName);
+						break;
+					}
+					if (!(MHIQueueBuffer(handle, buffer, length))){
+						printf("Error: cannot add a new buffer\n");
+						goto exit;
 					}
 				}
 			}
-			ReleaseSemaphore(&vsdat->sem);
 		}
-
 	}
+	
+	MHIStop(handle);
 	
 	for ( ; ; ){
 		sigs = Wait (SIGBREAKF_CTRL_C);
 		if (sigs & SIGBREAKF_CTRL_C){
-			printf("Stopping...\n");
-			std->io_Command = CMD_RESET; // stop playback
-			PutMsg(vsdat->drvPort, (struct Message *)std);
-			WaitPort(std->io_Message.mn_ReplyPort);
-			while(GetMsg(std->io_Message.mn_ReplyPort));
-			printf("Stopped\n");
+			printf("Exiting...\n");
 			break;
 		}
 
 	}
 	
 exit:
+	if (handle){
+		MHIFreeDecoder(handle);
+	}
 	if (allMem){
 		FreeVec(allMem);
 	}
 	Close(f);
-	if (std->io_Message.mn_ReplyPort){
-		DeleteMsgPort(std->io_Message.mn_ReplyPort);
-	}
-	if (std){
-		FreeVec(std);
-	}
 	FreeSignal(mySig);
-	destroyVS1053(vsdat);
+	if (DOSBase){
+		CloseLibrary(DOSBase);
+	}
+	if (MHIBase){
+		CloseLibrary(MHIBase);
+	}
 	
 	return 0;
 }

@@ -13,6 +13,7 @@
 # limitations under the License.
 */
 
+#include "compatibility.h"
 #include "vs1053.h"
 #include "debug.h"
 #include "patches/vs1053b-patches.plg"
@@ -95,8 +96,6 @@
 #define VS63ADMIXER_MODEMONO 			(1 << 6)
 #define VS63ADMIXER_MODELEFT 			(2 << 6)
 #define VS63ADMIXER_MODERIGHT			(3 << 6)
-
-
 
 // Chunk size to send to VS1053. Can be 32 max, but due to SPIder lag
 // this works best at 16 and then we capture full buffers in VS1053 earlier
@@ -412,7 +411,7 @@ static void __saveds workerTask(void)
 	sigmask = (1 << dat->drvPort->mp_SigBit) | (1 << dat->sig) | (1 << dat->sigTerm);
 	while (bSetupOK){
 		//D(DebugPrint(DEBUG_LEVEL, "workerTask: dat->status 0x%04X\n", dat->status));
-		if ((dat->status & (VS_PLAYING | VS_PAUSED)) == VS_PLAYING || (dat->status & VS_STOPPING) > 0){
+		if (((dat->status & (VS_PLAYING | VS_PAUSED)) == VS_PLAYING) && !(dat->status & VS_NOBUFF) || (dat->status & VS_STOPPING) > 0){
 			//D(DebugPrint(DEBUG_LEVEL, "workerTask: dat->status sending sig for 0x%04X\n", dat->status));
 			sigs = SetSignal(0L,0L) & sigmask; // Peek at waiting signals we are interested in
 			if (sigs){
@@ -518,12 +517,12 @@ close:
 	FreeVec(dat); // memory can only be cleanly removed here
 }
 
-__inline static BOOL dreq(void)
+__INLINE__ static BOOL dreq(void)
 {
 	return (BOOL)((spi_pin_val(PIN_INT) == 1)?TRUE:FALSE);
 }
 
-__inline static BOOL waitDREQ(struct VSData *dat, BOOL high)
+__INLINE__ static BOOL waitDREQ(struct VSData *dat, BOOL high)
 {
 	ULONG sigs = 0;
 	
@@ -548,7 +547,7 @@ __inline static BOOL waitDREQ(struct VSData *dat, BOOL high)
 	return TRUE ;
 }
 
-__inline static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec)
+__INLINE__ static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec)
 {
 	ULONG sigs = 0;
 	
@@ -573,7 +572,7 @@ __inline static BOOL waitDREQ_TO(struct VSData *dat, BOOL high, UWORD sec)
 	return TRUE ;
 }
 
-__inline static void writeRegister(UBYTE address, UWORD data)
+__INLINE__ static void writeRegister(UBYTE address, UWORD data)
 {
 	UWORD outw[2] = {VSOP_WRITE,0x00};
 	
@@ -585,7 +584,7 @@ __inline static void writeRegister(UBYTE address, UWORD data)
 	spi_deselect();
 }
 
-__inline static void writeMultiRegister(struct VSData *dat, UBYTE address, UWORD *data, UWORD len)
+__INLINE__ static void writeMultiRegister(struct VSData *dat, UBYTE address, UWORD *data, UWORD len)
 {
 	UWORD outw[2] = {VSOP_WRITE,0x00};
 	
@@ -627,7 +626,7 @@ static void loadCompressedPatch(const UWORD *plugin, const ULONG length)
   }
 }
 
-__inline static UWORD readRegister(UBYTE address)
+__INLINE__ static UWORD readRegister(UBYTE address)
 {
 	UWORD outw = VSOP_READ;
 	UWORD inw ;
@@ -641,7 +640,7 @@ __inline static UWORD readRegister(UBYTE address)
 	return inw;
 }
 
-__inline static UWORD readMemoryWord(struct VSData *dat, UWORD address)
+__INLINE__ static UWORD readMemoryWord(struct VSData *dat, UWORD address)
 {
 	writeRegister(REG_WRAMADDR, address);
 	if (!waitDREQ(dat, TRUE)){
@@ -652,7 +651,7 @@ __inline static UWORD readMemoryWord(struct VSData *dat, UWORD address)
 	return readRegister(REG_WRAM);
 }
 
-__inline static UWORD writeMemoryWord(struct VSData *dat, UWORD address, UWORD value)
+__INLINE__ static UWORD writeMemoryWord(struct VSData *dat, UWORD address, UWORD value)
 {
 	writeRegister(REG_WRAMADDR, address);
 	if (!waitDREQ(dat, TRUE)){
@@ -664,7 +663,7 @@ __inline static UWORD writeMemoryWord(struct VSData *dat, UWORD address, UWORD v
 	return TRUE ;
 }
 
-__inline static ULONG readMemoryLong(struct VSData *dat, UWORD address)
+__INLINE__ static ULONG readMemoryLong(struct VSData *dat, UWORD address)
 {
 	UWORD hi[2], lo[2];
 	UBYTE i=0;
@@ -815,7 +814,7 @@ BOOL startPlaying(struct VSData *dat)
 *******************************************************************************
 *
 */
-__inline void updateChunk(struct VSData *dat, struct VSChunk *chunk, ULONG size, struct Task *task, ULONG sigs)
+__INLINE__ void updateChunk(struct VSData *dat, struct VSChunk *chunk, ULONG size, struct Task *task, ULONG sigs)
 {
 	chunk->offset = 0;
 	chunk->size = size;
@@ -853,7 +852,7 @@ __inline void updateChunk(struct VSData *dat, struct VSChunk *chunk, ULONG size,
 *******************************************************************************
 *
 */
-__inline void resetChunk(struct VSChunk *chunk)
+__INLINE__ void resetChunk(struct VSChunk *chunk)
 {
 	// Retain node and buffer information
 	chunk->offset = 0;
@@ -890,7 +889,7 @@ __inline void resetChunk(struct VSChunk *chunk)
 *******************************************************************************
 *
 */
-__inline void removeAllChunks(struct VSData *dat)
+__INLINE__ void removeAllChunks(struct VSData *dat)
 {
 	struct Node *n = NULL;
 	while ( n = RemHead((struct List *)&dat->bufferList) ){
@@ -932,7 +931,7 @@ __inline void removeAllChunks(struct VSData *dat)
 *******************************************************************************
 *
 */
-__inline void removeChunk(struct VSChunk *chunk)
+__INLINE__ void removeChunk(struct VSChunk *chunk)
 {
 	Remove((struct Node*)chunk);
 	FreeVec(chunk); 
@@ -1059,7 +1058,7 @@ BOOL stopPlayback(struct VSData *dat)
 *******************************************************************************
 *
 */
-__inline void pausePlayback(struct VSData *dat, BOOL pause)
+__INLINE__ void pausePlayback(struct VSData *dat, BOOL pause)
 {
 	if (pause){
 		dat->status |= VS_PAUSED;
@@ -1100,7 +1099,7 @@ __inline void pausePlayback(struct VSData *dat, BOOL pause)
 *******************************************************************************
 *
 */
-__inline BOOL addBuffer(struct VSData *dat, APTR buffer, ULONG size, struct Task *task, ULONG sigs)
+__INLINE__ BOOL addBuffer(struct VSData *dat, APTR buffer, ULONG size, struct Task *task, ULONG sigs)
 {
 	struct VSChunk *buf;
 	buf = (struct VSChunk*)AllocVec(sizeof(struct VSChunk), MEMF_ANY | MEMF_CLEAR);
@@ -1108,6 +1107,8 @@ __inline BOOL addBuffer(struct VSData *dat, APTR buffer, ULONG size, struct Task
 		return FALSE ;
 	}
 	ObtainSemaphore(&dat->sem);
+	dat->lastChunkTask = task;
+	dat->lastChunkSigs = sigs;
 	updateChunk(dat, buf, size, task, sigs);
 	buf->buffer = buffer; // Only attribute not managed by updateChunk or resetChunk
 	ReleaseSemaphore(&dat->sem);
@@ -1163,18 +1164,29 @@ BOOL playChunk(struct VSData *dat)
 	if (dat->status & VS_PAUSED){
 		// Do nothing, volume will drop with no buffer
 	}else{
-		ObtainSemaphore(&dat->sem);
+		
 		if (!dat->currentChunk){
 			if (IsListEmpty(&dat->bufferList)){
-				dat->status |= VS_NOBUFF;
-				D(DebugPrint(DEBUG_LEVEL,"*")); // Symbol for very empty buffer
-			}else{
-				if (!(dat->currentChunk=(struct VSChunk*)RemHead(&dat->bufferList))){
+				if (!(dat->status & VS_NOBUFF)){
+					dat->stdPriority = SetTaskPri(dat->drvTask, -10); // Drop the priority as it can hog the scheduler
 					dat->status |= VS_NOBUFF;
-					D(DebugPrint(DEBUG_LEVEL,"!")); // Symbol for new empty buffer
-				}else{
-					dat->status &= ~VS_NOBUFF; // clear no buff flag
 				}
+				D(DebugPrint(DEBUG_LEVEL,"*")); // Symbol for very empty buffer
+				if (dat->lastChunkTask){ // Send another signal is lastChunkTask set (we had previous buffers)
+					D(DebugPrint(DEBUG_LEVEL,"@")); // Symbol for signal
+					D(DebugPrint(DEBUG_LEVEL,"Signal: %p, 0x%08X\n", dat->lastChunkTask, dat->lastChunkSigs)); 
+					Signal(dat->lastChunkTask, dat->lastChunkSigs);
+				}
+			}else{
+				ObtainSemaphore(&dat->sem);
+				if ((dat->currentChunk=(struct VSChunk*)RemHead(&dat->bufferList))){
+					if (dat->status & VS_NOBUFF){ // if we had a nobuff situation then restore priority and status
+						D(DebugPrint(DEBUG_LEVEL,"SetTaskPri: %p, %d\n", dat->drvTask, dat->stdPriority)); 
+						SetTaskPri(dat->drvTask, dat->stdPriority);
+						dat->status &= ~VS_NOBUFF; // clear no buff flag
+					}
+				}
+				ReleaseSemaphore(&dat->sem);
 			}
 		}
 		
@@ -1183,7 +1195,7 @@ BOOL playChunk(struct VSData *dat)
 			if ((readbytes = remaining > CHUNK_SIZE?CHUNK_SIZE:remaining)){
 				if (!waitDREQ(dat, TRUE)){
 					D(DebugPrint(ERROR_LEVEL, "playChunk: DREQ failed\n"));
-					ReleaseSemaphore(&dat->sem);
+					
 					return FALSE ;
 				}
 				D(DebugPrint(DEBUG_LEVEL,"-")); // Symbol for used buffer
@@ -1194,7 +1206,9 @@ BOOL playChunk(struct VSData *dat)
 			
 			// Check buffer has completed and recirculate back into the List of buffers
 			if (dat->currentChunk->offset >= dat->currentChunk->size){
+				ObtainSemaphore(&dat->sem);
 				AddTail(&dat->freeList, (struct Node *)dat->currentChunk); // add to free chunk list	
+				ReleaseSemaphore(&dat->sem);
 				// Signal to owner that a buffer has completed
 				//D(DebugPrint(DEBUG_LEVEL,"Sig: task %p, sig %d", dat->currentChunk->ownerTask, dat->currentChunk->sigs));
 				if (dat->currentChunk->ownerTask && dat->currentChunk->sigs > 0){
@@ -1205,8 +1219,6 @@ BOOL playChunk(struct VSData *dat)
 				dat->currentChunk = NULL ; // Clear current working chunk for allocation in next try
 			}
 		}
-		ReleaseSemaphore(&dat->sem);
-		
 	}
 	return TRUE ;
 }
@@ -1356,7 +1368,7 @@ BOOL resetVS1053(struct VSData *dat)
 *     initVS1053 -- Create VS1053 instance. 
 *
 * SYNOPSIS
-*     struct VSData* = initVS1053(void);
+*     struct VSData* = initVS1053(LONG);
 * 
 * FUNCTION
 *     Initialise VS1053 hardware, SPIder and start background task. This must
@@ -1391,11 +1403,18 @@ struct VSData* initVS1053(LONG priority)
 	BOOL success = FALSE ;
 	UWORD reg = 0;
 	struct IORequest *callingTmr = NULL;
+
+#ifdef __VBCC__
+	if (!SysBase){
+		SysBase = *(struct ExecBase **)4UL;
+	}
+#endif
 	
 	dat = (struct VSData*)AllocVec(sizeof(struct VSData), MEMF_ANY | MEMF_CLEAR);
 	if (!dat){
 		return NULL;
 	}
+	
 	_resetList(&dat->bufferList);
 	_resetList(&dat->freeList);
 	dat->sig = -1;
@@ -1419,11 +1438,13 @@ struct VSData* initVS1053(LONG priority)
 	dat->callingTask = FindTask(NULL);
 	
 #if VS10XX_USE_INTERRUPTS
-	dat->drvTask = createWorkerTask(dat, "SPIAudio", priority, workerTask, 4096, dat);
+	dat->stdPriority = priority ;
 #else
 	// Too instable with normal or higher priorities
-	dat->drvTask = createWorkerTask(dat, "SPIAudio", -10, workerTask, 4096, dat);
+	dat->stdPriority = -10;
 #endif
+	dat->drvTask = createWorkerTask(dat, "SPIAudio", dat->stdPriority, workerTask, 4096, dat);
+
 	if (!timerWaitTO(callingTmr, 5, 0, 1 << dat->callingSig)){
 		// Task must have failed
 		D(DebugPrint(ERROR_LEVEL, "initVS1053: no task signal received to confirm worker running\n"));

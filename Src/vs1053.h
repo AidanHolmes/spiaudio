@@ -20,6 +20,8 @@
 #include "spi.h"
 #include "timing.h"
 #include "config_file.h"
+#include <exec/exec.h>
+#include <proto/exec.h>
 #include <exec/semaphores.h>
 #include <dos/dos.h>
 #include <proto/dos.h>
@@ -43,6 +45,24 @@
 #define VS_PARAM_ADMIX		8		// Not in MHI params, but for advanced enable/disable and gain (top byte for on/off, lower for gain)
 #define VS_PARAM_VUMETER	9		// Not in MHI params, raw vuMeter return from VS10XX memory
 
+// This can be overridden at compile time
+// to allow or remove MPEG layer 1 and 2 decoding
+#ifndef VS1053_AUDIO_MPEG12
+#define VS1053_AUDIO_MPEG12 1
+#endif
+
+// This can be overridden at compile time
+// to allow or remove audio mixing using LINE-IN
+#ifndef VS1053_AUDIO_ADMIX
+#define VS1053_AUDIO_ADMIX 1
+#endif
+
+// This can be overridden at compile time
+// to control the use of interrupts
+#ifndef VS10XX_USE_INTERRUPTS
+#define VS10XX_USE_INTERRUPTS 1
+#endif
+
 // Additional commands
 #define CMD_VSAUDIO_PARAMETER		CMD_NONSTD + 0
 #define CMD_VSAUDIO_INFO			CMD_NONSTD + 1
@@ -62,25 +82,6 @@ struct VSMediaInfo
 	UWORD audata;
 	LONG positionMsec; // OGG and WMA
 };
-
-// This can be overridden at compile time
-// to allow or remove MPEG layer 1 and 2 decoding
-#ifndef VS1053_AUDIO_MPEG12
-#define VS1053_AUDIO_MPEG12 1
-#endif
-
-// This can be overridden at compile time
-// to allow or remove audio mixing using LINE-IN
-#ifndef VS1053_AUDIO_ADMIX
-#define VS1053_AUDIO_ADMIX 1
-#endif
-
-// This can be overridden at compile time
-// to control the use of interrupts
-#ifndef VS10XX_USE_INTERRUPTS
-#define VS10XX_USE_INTERRUPTS 1
-#endif
-
 
 struct VSChunk
 {
@@ -118,6 +119,9 @@ struct VSData
 	UBYTE treb;
 	UBYTE version;
 	BOOL admix;
+	struct Task *lastChunkTask ;
+	ULONG lastChunkSigs;
+	BYTE stdPriority;
 };
 
 

@@ -39,19 +39,19 @@ struct UserMHI{
 	UBYTE midhigh;
 };
 
-__inline void sendAndWait(struct VSData *dat, struct IOStdReq *std)
+__INLINE__ void sendAndWait(struct VSData *dat, struct IOStdReq *std)
 {
 	PutMsg(dat->drvPort, (struct Message *)std);
 	WaitPort(std->io_Message.mn_ReplyPort);
 	while(GetMsg(std->io_Message.mn_ReplyPort));
 }
 
-struct LibDevBase* __saveds __asm libdev_library_open(register __a6 struct LibDevBase *base)
+__SAVE_DS__ struct LibDevBase* __ASM__ libdev_library_open(__REG__(a6, struct LibDevBase *)base)
 {
 	return base;
 }
 
-struct LibDevBase* __saveds __asm libdev_initalise(register __a6 struct LibDevBase *base)
+__SAVE_DS__ struct LibDevBase* __ASM__ libdev_initalise(__REG__(a6, struct LibDevBase *)base)
 {
 	struct VSData *config = NULL ;
 	
@@ -63,7 +63,7 @@ struct LibDevBase* __saveds __asm libdev_initalise(register __a6 struct LibDevBa
 	return base;
 }
 
-void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base)
+__SAVE_DS__ void __ASM__ libdev_cleanup(__REG__(a6, struct LibDevBase *)base)
 {
 	struct VSData *dat = NULL ;
 	if (base->libData){
@@ -79,11 +79,15 @@ void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base)
 //
 //
 
-APTR    __saveds __asm MHIAllocDecoder (register __a0 struct Task *task , register __d0 ULONG mhisignal, register __a6 struct LibDevBase *base)
+__SAVE_DS__ APTR __ASM__ MHIAllocDecoder (__REG__(a0, struct Task *)task , __REG__(d0, ULONG) mhisignal, __REG__(a6, struct LibDevBase *)base)
 {
 	BOOL completedOK = FALSE ;
 	struct UserMHI *usr = NULL;
 	struct VSData *dat = (struct VSData*)base->libData;
+	
+	if (!dat){
+		goto end;
+	}
 	
 	if (!(usr=AllocVec(sizeof(struct UserMHI), MEMF_ANY | MEMF_CLEAR))){
 		goto end;
@@ -126,7 +130,7 @@ end:
 	return usr;
 }
 
-VOID    __saveds __asm MHIFreeDecoder  (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ VOID __ASM__ MHIFreeDecoder (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	if (handle){
@@ -136,12 +140,12 @@ VOID    __saveds __asm MHIFreeDecoder  (register __a3 APTR handle, register __a6
 	}
 }
 
-BOOL    __saveds __asm MHIQueueBuffer  (register __a3 APTR handle, register __a0 APTR buffer, register __d0 ULONG size, register __a6 struct LibDevBase *base)
+__SAVE_DS__ BOOL __ASM__ MHIQueueBuffer (__REG__(a3, APTR) handle, __REG__(a0, APTR) buffer, __REG__(d0, ULONG) size, __REG__(a6, struct LibDevBase *)base)
 {
 	return addBuffer((struct VSData *)base->libData, buffer, size, ((struct UserMHI*)handle)->task, ((struct UserMHI*)handle)->signal);
 }
 
-APTR    __saveds __asm MHIGetEmpty     (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ APTR __ASM__ MHIGetEmpty (__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	struct VSChunk *buf = NULL;
 	UBYTE *returnme = NULL ;
@@ -160,7 +164,7 @@ APTR    __saveds __asm MHIGetEmpty     (register __a3 APTR handle, register __a6
 	return NULL;
 }
 
-UBYTE   __saveds __asm MHIGetStatus    (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ UBYTE __ASM__ MHIGetStatus(__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	UBYTE status = MHIF_STOPPED;
 	
@@ -176,7 +180,7 @@ UBYTE   __saveds __asm MHIGetStatus    (register __a3 APTR handle, register __a6
 	return status;
 }
 
-VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ VOID __ASM__ MHIPlay(__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSData *dat = (struct VSData*)base->libData;
@@ -186,7 +190,7 @@ VOID    __saveds __asm MHIPlay         (register __a3 APTR handle, register __a6
 	sendAndWait(dat, usr->std);
 }
 
-VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ VOID __ASM__ MHIStop(__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	struct Node *n = NULL;
 	struct VSData *dat = (struct VSData*)base->libData;
@@ -203,7 +207,7 @@ VOID    __saveds __asm MHIStop         (register __a3 APTR handle, register __a6
 	ReleaseSemaphore(&dat->sem);
 }
 
-VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6 struct LibDevBase *base)
+__SAVE_DS__ VOID __ASM__ MHIPause(__REG__(a3, APTR) handle, __REG__(a6, struct LibDevBase *)base)
 {
 	UBYTE status = MHIF_STOPPED;
 	struct UserMHI *usr = (struct UserMHI*)handle;
@@ -221,7 +225,7 @@ VOID    __saveds __asm MHIPause        (register __a3 APTR handle, register __a6
 	sendAndWait(dat, usr->std);
 }
 
-ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6 struct LibDevBase *base)
+__SAVE_DS__ ULONG __ASM__ MHIQuery(__REG__(d1, ULONG) query, __REG__(a6, struct LibDevBase *)base)
 {
 		switch (query) {
 		// Supported encoding
@@ -284,7 +288,7 @@ ULONG   __saveds __asm MHIQuery        (register __d1 ULONG query, register __a6
 	}
 }
 
-VOID    __saveds __asm MHISetParam     (register __a3 APTR handle, register __d0 UWORD param, register __d1 ULONG value, register __a6 struct LibDevBase *base)
+__SAVE_DS__ VOID __ASM__ MHISetParam(__REG__(a3, APTR) handle, __REG__(d0, UWORD) param, __REG__(d1, ULONG) value, __REG__(a6, struct LibDevBase *)base)
 {
 	struct UserMHI *usr = (struct UserMHI*)handle;
 	struct VSData *dat = (struct VSData*)base->libData;

@@ -1,0 +1,79 @@
+# Makefile for VBCC build of SPIAudio drivers and applications
+VCROOTBIN = $(VBCC)/bin
+CC = $(VCROOTBIN)/vc
+VASM = $(VCROOTBIN)/vasmm68k_mot
+SCOPTS = +aos68k -lamiga -D_DEBUG -DDEBUG_SERIAL 
+
+AMINETNAME = myhw
+DEVICENAME = myhw
+LIBDEVMAJOR = 1
+LIBDEVMINOR = 0
+LIBDEVDATE = "1.1.2025"
+LIBDEVNAME = $(DEVICENAME).library
+LIBTESTBIN = testlib
+MHIHOME=../../lib/mhi_dev
+SPIDERHOME=../../lib/spiderdev
+AMIGAUIHOME=../../lib/amigaui
+TESTBIN = audio-test
+VISUALBIN = spidervis
+BUILD = Debug
+
+SPIDERLIBH=$(SPIDERHOME)/Src
+SPIDERLIBBUILDDIR=$(SPIDERHOME)/$(BUILD)/Bin/
+SPIDERLIB=spiderdev
+
+AMIGAUILIBH=$(AMIGAUIHOME)/Src
+AMIGAUILIBBUILDDIR=$(AMIGAUIHOME)/$(BUILD)/Bin/
+AMIGAUILIB=ui
+
+MHI_H=$(MHIHOME)/Include
+
+
+SRC = ../Src
+BIN = Bin
+OBJ = Obj
+OBJSAUD = $(OBJ)/timing.o $(OBJ)/debug.o 
+OBJSLIB = $(OBJ)/libdev.o $(OBJ)/spiaudiolib.o $(OBJ)/vs1053.o
+OBJSBIN = $(OBJ)/$(TESTBIN).o
+OBJSVIS = $(OBJ)/$(VISUALBIN).o
+OBJSLIBBIN = $(OBJ)/$(LIBTESTBIN).o
+ALLOBJS = $(OBJSAUD) $(OBJSLIB) $(OBJSBIN) $(OBJSVIS) $(OBJSLIBBIN)
+
+EXTRA_H = -I$(SPIDERLIBH) -I$(MHI_H) -I$(AMIGAUILIBH)
+DEFSTD = -DAS_LIBRARY -DLIBDEVMAJOR=$(LIBDEVMAJOR) -DLIBDEVMINOR=$(LIBDEVMINOR) -DLIBDEVDATE=$(LIBDEVDATE) -DLIBDEVNAME=$(LIBDEVNAME)
+CFLAGS = -I$(VBCC)/targets/m68k-amigaos/include $(SCOPTS) $(DEFSTD) $(EXTRA_H) -v
+
+.PHONY: all dirs clean install lib
+
+all: dirs $(BIN)/$(TESTBIN) $(BIN)/$(LIBDEVNAME) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
+
+dirs:
+	mkdir -p $(BIN)
+	mkdir -p $(OBJ)
+	
+clean:
+	rm -f $(OBJ)/*.o $(OBJ)/*.asm $(BIN)/*.lnk $(BIN)/*.info $(BIN)/*.map $(BIN)/*.gst $(BIN)/$(LIBDEVNAME) $(BIN)/$(TESTBIN) $(BIN)/$(LIBTESTBIN) $(BIN)/$(VISUALBIN)
+
+install:
+	mkdir -p LIBS:MHI
+	cp $(BIN)/$(LIBDEVNAME) LIBS:MHI/
+	
+lib: $(BIN)/$(LIBDEVNAME) $(BIN)/$(VISUALBIN)
+	cp $(BIN)/$(LIBDEVNAME) ../$(AMINETNAME)/$(LIBDEVNAME)
+	cp $(BIN)/$(VISUALBIN) ../$(AMINETNAME)/$(VISUALBIN)
+
+$(BIN)/$(LIBDEVNAME): $(OBJSLIB) $(OBJSAUD)
+	$(CC) $(CFLAGS) -o $@ $(OBJSLIB) $(OBJSAUD) -L$(SPIDERLIBBUILDDIR) -l$(SPIDERLIB)
+	
+$(BIN)/$(TESTBIN): $(OBJSAUD) $(OBJSBIN)
+	$(CC) $(CFLAGS) -o $@ $(OBJSAUD) $(OBJSBIN)
+	
+$(BIN)/$(LIBTESTBIN): $(OBJSLIBBIN) $(OBJSAUD)
+	$(CC) $(CFLAGS) -o $@ $(OBJSAUD) $(OBJSLIBBIN)
+	
+$(BIN)/$(VISUALBIN): $(OBJSVIS)
+	$(CC) $(CFLAGS) -o $@ $(OBJSVIS) -L$(AMIGAUILIBBUILDDIR) -l$(AMIGAUILIB)
+	
+$(ALLOBJS): $(OBJ)/%.o: $(SRC)/%.c
+	$(CC) $(CFLAGS) -c $^ -o $@
+	

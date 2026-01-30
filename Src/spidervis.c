@@ -23,11 +23,22 @@
 #include "ampplugin.h"
 #include <libraries/mhi.h>
 #include "img/Spider.xbm"
+#ifdef __VBCC__
+#include <inline/mhi_protos.h>
+#endif
 
 #define MHIBase appData->mhibase
 
+struct Library *IntuitionBase = NULL;
+struct Library *GfxBase = NULL ;
+
+// SAS/C using compiler instruction to stop CTRL-C handling. These conflict so commented out
 //int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
 //void __regargs __chkabort(void) { ; } /* really */
+
+#ifdef __VBCC__
+void __chkabort(void) { ; }
+#endif
 
 struct TextAttr topaz8 = {
    (STRPTR)"topaz.font", 8, 0, 1
@@ -371,9 +382,9 @@ static BOOL initGraphics(App *myApp, struct MHIVisAppData *appData)
 	}
 	appData->windowWidth = myApp->mainWnd.appWindow->Width - myApp->mainWnd.appWindow->BorderLeft - myApp->mainWnd.appWindow->BorderRight;
 	appData->windowHeight = myApp->mainWnd.appWindow->Height - myApp->mainWnd.appWindow->BorderTop - myApp->mainWnd.appWindow->BorderBottom;
-	appData->bgPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x7EFFFFFF, 0x8DFFFFFF, 0x6CFFFFFF, NULL);
-	appData->vuPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x39FFFFFF, 0x40FFFFFF, 0x31FFFFFF, NULL);
-	appData->vuPenFade = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x70FFFFFF, 0x7CFFFFFF, 0x60FFFFFF, NULL);
+	appData->bgPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x7EFFFFFF, 0x8DFFFFFF, 0x6CFFFFFF, 0);
+	appData->vuPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x39FFFFFF, 0x40FFFFFF, 0x31FFFFFF, 0);
+	appData->vuPenFade = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x70FFFFFF, 0x7CFFFFFF, 0x60FFFFFF, 0);
 	appData->vuWidth = appData->windowWidth / 7;
 	appData->vuHeight = appData->windowHeight / 2;
 	appData->vuLeftYStart = appData->windowHeight;
@@ -954,9 +965,13 @@ int main(void)
     App myApp ;
 	struct MHIVisAppData appData;
 	Wnd *appWnd;
+	int ret = 0;
 	
-	
-    initialiseApp(&myApp);
+	if ((ret=initialiseApp(&myApp)) != 0){
+		return ret;
+	}
+	IntuitionBase = myApp.intu;
+	GfxBase = myApp.gfx;
 	
 	setWakeTimer(&myApp, 0, 33333); // 30 FPS(ish)
 	

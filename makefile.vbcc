@@ -1,0 +1,78 @@
+# Makefile for VBCC build of SPIAudio drivers and applications
+# Requires a makefile.master.vbcc to build the Release and Debug targets
+AMITOOLS = /opt/amiga/tools
+FDTOPRAGMA = $(AMITOOLS)/fd2pragma
+AMINETNAME = SPIAudio
+DEVICENAME = mhispiaudio
+LIBDEVMAJOR = 1
+LIBDEVMINOR = 4
+LIBDEVDATE = \"10.01.2026\"
+LIBDEVNAME = $(DEVICENAME).library
+LHADIR = $(AMINETNAME)
+RELEASEDIR = Release
+DEBUGDIR = Debug
+RELEASEMK = $(RELEASEDIR)/makefile.vbcc
+DEBUGMK = $(DEBUGDIR)/makefile.vbcc
+TEMPLATEMAKEFILE = makefile.master.vbcc
+
+# This build requires an install of the CyberGraphics library (such as P96) and the dev headers. 
+# Change to point to location of headers.
+INCDEPENDS= -I\/opt\/amiga\/NDK3.2\/Include_H
+
+# optimised and release version
+PRODCOPTS = +aos68k -lamiga -O2 $(INCDEPENDS) -DVS10XX_USE_INTERRUPTS=1 
+
+# debug version build options
+DBGCOPTS = +aos68k -lamiga -g $(INCDEPENDS) -DVS10XX_USE_INTERRUPTS=1 -D_DEBUG -DDEBUG_SERIAL
+
+.PHONY: all clean includes lib
+
+all: $(RELEASEMK) $(DEBUGMK) includes lib
+	cd $(RELEASEDIR) && make -f makefile.vbcc
+	cd $(DEBUGDIR) && make -f makefile.vbcc
+
+clean:
+	cd $(RELEASEDIR) && make -f makefile.vbcc clean
+	cd $(DEBUGDIR) && make -f makefile.vbcc clean
+	rm -f $(AMINETNAME).tar.gz $(AMINETNAME)/$(LIBDEVNAME) $(AMINETNAME)/spidervis $(AMINETNAME)/Include/C/pragma/* $(AMINETNAME)/Include/C/inline/* $(AMINETNAME)/Include/C/proto/* $(AMINETNAME)/Include/C/inline/* $(AMINETNAME)/Include/Assembly/lvo/* $(AMINETNAME)/FD/*
+	
+lib: $(AMINETNAME).tar.gz
+
+$(RELEASEMK): $(TEMPLATEMAKEFILE) makefile.vbcc
+	mkdir -p $(RELEASEDIR)
+	sed -r 's/^SCOPTS.+$$/SCOPTS = $(PRODCOPTS)/' $(TEMPLATEMAKEFILE) > $(RELEASEMK)
+	sed -ri 's/^DEVICENAME.+$$/DEVICENAME = $(DEVICENAME)/' $(RELEASEMK)
+	sed -ri 's/^LIBDEVMAJOR.+$$/LIBDEVMAJOR = $(LIBDEVMAJOR)/' $(RELEASEMK)
+	sed -ri 's/^LIBDEVMINOR.+$$/LIBDEVMINOR = $(LIBDEVMINOR)/' $(RELEASEMK) 
+	sed -ri 's/^LIBDEVDATE.+$$/LIBDEVDATE = $(LIBDEVDATE)/' $(RELEASEMK) 
+	sed -ri 's/^AMINETNAME.+$$/AMINETNAME = $(AMINETNAME)/' $(RELEASEMK)
+	sed -ri 's/^BUILD.+$$/BUILD = Release/' $(RELEASEMK) 
+	
+$(DEBUGMK): $(TEMPLATEMAKEFILE) makefile.vbcc
+	mkdir -p $(DEBUGDIR)
+	sed -r 's/^SCOPTS.+$$/SCOPTS = $(DBGCOPTS)/' $(TEMPLATEMAKEFILE) > $(DEBUGMK)
+	sed -ri 's/^DEVICENAME.+$$/DEVICENAME = $(DEVICENAME)/' $(DEBUGMK) 
+	sed -ri 's/^LIBDEVMAJOR.+$$/LIBDEVMAJOR = $(LIBDEVMAJOR)/' $(DEBUGMK)
+	sed -ri 's/^LIBDEVMINOR.+$$/LIBDEVMINOR = $(LIBDEVMINOR)/' $(DEBUGMK)
+	sed -ri 's/^LIBDEVDATE.+$$/LIBDEVDATE = $(LIBDEVDATE)/' $(DEBUGMK) 
+	sed -ri 's/^AMINETNAME.+$$/AMINETNAME = $(AMINETNAME)/' $(DEBUGMK)
+	sed -ri 's/^BUILD.+$$/BUILD = Debug/' $(DEBUGMK)
+
+$(AMINETNAME).tar.gz: $(RELEASEMK)
+	cd $(RELEASEDIR) && make -f makefile.vbcc lib
+	tar zcvf $(AMINETNAME).tar.gz $(LHADIR)
+
+includes: Src/SFD/spiaudio_lib.sfd
+	mkdir -p "$(AMINETNAME)/Include/C/clib"
+	mkdir -p "$(AMINETNAME)/FD"
+	mkdir -p "$(AMINETNAME)/Include/C/pragma"
+	mkdir -p "$(AMINETNAME)/Include/C/inline"
+	mkdir -p "$(AMINETNAME)/Include/C/proto"
+	mkdir -p "$(AMINETNAME)/Include/Assembly/lvo"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=111 --to="$(AMINETNAME)/Include/C/clib" --autoheader
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=110 --to="$(AMINETNAME)/FD"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=6 --to="$(AMINETNAME)/Include/C/pragma"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=40 --to="$(AMINETNAME)/Include/C/inline"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=38 --to="$(AMINETNAME)/Include/C/proto"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=70 --to="$(AMINETNAME)/Include/C/inline"
+	$(FDTOPRAGMA) --infile="Src/SFD/spiaudio_lib.sfd" --special=23 --to="$(AMINETNAME)/Include/Assembly/lvo"

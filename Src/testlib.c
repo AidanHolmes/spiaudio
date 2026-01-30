@@ -21,9 +21,18 @@
 #include <string.h>
 #include "timing.h"
 #include "vs1053.h"
+#ifdef __VBCC__
+#include <inline/mhi_protos.h>
+#endif
 
-int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
-void __regargs __chkabort(void) { ; } /* really */
+// SAS/C using compiler instruction to stop CTRL-C handling. These conflict so commented out
+//int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
+//void __regargs __chkabort(void) { ; } /* really */
+
+
+#ifdef __VBCC__
+void __chkabort(void) { ; }
+#endif
 
 struct MinHandle{
 	UWORD version;
@@ -74,6 +83,8 @@ int main (int argc, char **argv)
 	struct MinHandle *drv;
 	UWORD buildVersion = LIBDEVMAJOR << 8 | LIBDEVMINOR;
 	struct IOStdReq std ;
+	
+	memset(&std, 0, sizeof(struct IOStdReq));
 	
 	if (!(MHIBase = OpenLibrary("LIBS:MHI/mhispiaudio.library", 0))){
 		printf("Cannot open MHI library\n");

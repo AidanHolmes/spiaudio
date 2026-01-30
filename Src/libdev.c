@@ -81,25 +81,25 @@
 #define STR(A) _STR(A)
 
 #ifdef AS_LIBRARY
-static struct LibDevBase* __saveds __asm library_open(register __a6 struct LibDevBase *base);
-extern struct LibDevBase* __saveds __asm libdev_library_open(register __a6 struct LibDevBase *base);
+__SAVE_DS__ __ASM__ static struct LibDevBase*  library_open(__REG__(a6, struct LibDevBase *) base);
+__SAVE_DS__ __ASM__ extern struct LibDevBase*  libdev_library_open(__REG__(a6, struct LibDevBase *) base);
 #else
-static int __saveds __asm device_open(register __a6 struct LibDevBase *base, register __d0 ULONG unit, register __d1 ULONG flags, register __a1 struct IORequest *ior);
-static APTR __saveds __asm device_close(register __a6 struct LibDevBase *base, register __a1 struct IORequest *ior);
-extern int __saveds __asm libdev_device_open(register __a6 struct LibDevBase *base, register __d0 ULONG unit, register __d1 ULONG flags, register __a1 struct IORequest *ior);
-extern void __saveds __asm libdev_device_close(register __a6 struct LibDevBase *base, register __a1 struct IORequest *ior);
-extern void __saveds __asm beginio(register __a6 struct LibDevBase *base, register __a1 struct IORequest *ior);
-extern void __saveds __asm abortio(register __a6 struct LibDevBase *base, register __a1 struct IORequest *ior);
+__SAVE_DS__ __ASM__ static int device_open(__REG__(a6, struct LibDevBase *) base, __REG__(d0, ULONG) unit, __REG__(d1, ULONG) flags, __REG__(a1, struct IORequest *) ior);
+__SAVE_DS__ __ASM__ static APTR device_close(__REG__(a6, struct LibDevBase *) base, __REG__(a1, struct IORequest *) ior);
+__SAVE_DS__ __ASM__ extern int libdev_device_open(__REG__(a6, struct LibDevBase *) base, __REG__(d0, ULONG) unit, __REG__(d1, ULONG) flags, __REG__(a1, struct IORequest *) ior);
+__SAVE_DS__ __ASM__ extern void libdev_device_close(__REG__(a6, struct LibDevBase *) base, __REG__(a1, struct IORequest *) ior);
+__SAVE_DS__ __ASM__ extern void beginio(__REG__(a6, struct LibDevBase *) base, __REG__(a1, struct IORequest *) ior);
+__SAVE_DS__ __ASM__ extern void abortio(__REG__(a6, struct LibDevBase *) base, __REG__(a1, struct IORequest *) ior);
 #endif
 
 static void DeleteLibrary(struct LibDevBase *base);
-static struct LibDevBase* __saveds __asm library_init(register __d0 struct LibDevBase *lib_base, register __a0 APTR seg_list, register __a6 struct LibDevBase *base);
-static APTR __saveds __asm library_close(register __a6 struct LibDevBase *base);
-static APTR __saveds __asm library_expunge(register __a6 struct LibDevBase *base);
-static APTR __saveds __asm library_reserved(void){return NULL;}
+__SAVE_DS__ __ASM__ static struct LibDevBase* library_init(__REG__(d0, struct LibDevBase *) lib_base, __REG__(a0, APTR) seg_list, __REG__(a6, struct LibDevBase *) base);
+__SAVE_DS__ __ASM__ static APTR library_close(__REG__(a6, struct LibDevBase *) base);
+__SAVE_DS__ __ASM__ static APTR library_expunge(__REG__(a6, struct LibDevBase *) base);
+__SAVE_DS__ __ASM__ static APTR library_reserved(void){return NULL;}
 
-extern struct LibDevBase* __saveds __asm libdev_initalise(register __a6 struct LibDevBase *base) ;
-extern void __saveds __asm libdev_cleanup(register __a6 struct LibDevBase *base);
+__SAVE_DS__ __ASM__ extern struct LibDevBase* libdev_initalise(__REG__(a6, struct LibDevBase *)base) ;
+__SAVE_DS__ __ASM__ extern void libdev_cleanup(__REG__(a6, struct LibDevBase *) base);
 
 extern const APTR vectors[];
 extern const APTR init_table[];
@@ -109,9 +109,12 @@ int main()
    return -1;
 }
 
-static const char library_name[] = LIBDEVNAME;
+static const char library_name[] = STR(LIBDEVNAME);
 static const char version_string[] =
-  LIBDEVNAME " " STR(LIBDEVMAJOR) "." STR(LIBDEVMINOR) " (" LIBDEVDATE ")\n";
+  STR(LIBDEVNAME) " " STR(LIBDEVMAJOR) "." STR(LIBDEVMINOR) " (" STR(LIBDEVDATE) ")\n";
+//static const char library_name[] = LIBDEVNAME;
+//static const char version_string[] =
+//  LIBDEVNAME " " STR(LIBDEVMAJOR) "." STR(LIBDEVMINOR) " (" STR(LIBDEVDATE) ")\n";
 
 static const struct Resident rom_tag =
 {
@@ -174,15 +177,31 @@ static const struct _initdata
 } init_data =
 {
 #ifdef AS_LIBRARY
+#ifdef __VBCC__
+	SMALLINITBYTE(8, NT_LIBRARY),
+#else
 	SMALLINITBYTE(OFFSET(Node, ln_Type), NT_LIBRARY),
+#endif
+#else
+#ifdef __VBCC__
+	SMALLINITBYTE(8, NT_DEVICE),
 #else
 	SMALLINITBYTE(OFFSET(Node, ln_Type), NT_DEVICE),
 #endif
+#endif
+#ifdef __VBCC__
+	SMALLINITPINT(10, library_name),
+	SMALLINITBYTE(14, LIBF_SUMUSED|LIBF_CHANGED),
+	SMALLINITWORD(20, LIBDEVMAJOR),
+	SMALLINITWORD(22, LIBDEVMINOR),
+	SMALLINITPINT(24, version_string),
+#else
 	SMALLINITPINT(OFFSET(Node, ln_Name), library_name),
 	SMALLINITBYTE(OFFSET(Library, lib_Flags), LIBF_SUMUSED|LIBF_CHANGED),
 	SMALLINITWORD(OFFSET(Library, lib_Version), LIBDEVMAJOR),
 	SMALLINITWORD(OFFSET(Library, lib_Revision), LIBDEVMINOR),
 	SMALLINITPINT(OFFSET(Library, lib_IdString), version_string),
+#endif
 	INITEND
 };
 
@@ -195,7 +214,7 @@ const APTR init_table[] =
 	(APTR)library_init
 };
 
-static struct LibDevBase* __saveds __asm library_init(register __d0 struct LibDevBase *lib_base, register __a0 APTR seg_list, register __a6 struct LibDevBase *base)
+__SAVE_DS__ __ASM__ static struct LibDevBase* library_init(__REG__(d0, struct LibDevBase *) lib_base, __REG__(a0, APTR) seg_list, __REG__(a6, struct LibDevBase *) base)
 {
 	lib_base->sys_base = (APTR)base;
 	base = lib_base;
@@ -206,7 +225,7 @@ static struct LibDevBase* __saveds __asm library_init(register __d0 struct LibDe
 	return base;
 }
 #ifdef AS_LIBRARY
-static struct LibDevBase* __saveds __asm library_open(register __a6 struct LibDevBase *base)
+__SAVE_DS__ __ASM__ static struct LibDevBase* library_open(__REG__(a6, struct LibDevBase *) base)
 {	
 	if (!libdev_library_open(base)){
 		return NULL;
@@ -218,7 +237,7 @@ static struct LibDevBase* __saveds __asm library_open(register __a6 struct LibDe
 	return base;
 }
 #else
-static int __saveds __asm device_open(register __a6 struct LibDevBase *base, register __d0 ULONG unit, register __d1 ULONG flags, register __a1 struct IORequest *ior)
+__SAVE_DS__ __ASM__ static int device_open(__REG__(a6,struct LibDevBase*) base, __REG__(d0,ULONG) unit, __REG__(d1,ULONG) flags, __REG__(a1, struct IORequest*) ior)
 {
 	int ret = 0;
 	struct ExecBase *eb = *(struct ExecBase **)4;
@@ -242,7 +261,7 @@ static int __saveds __asm device_open(register __a6 struct LibDevBase *base, reg
 	return 0;
 }
 
-static APTR __saveds __asm device_close(register __a6 struct LibDevBase *base, register __a1 struct IORequest *ior)
+__SAVE_DS__ __ASM__ static APTR device_close(__REG__(a6, struct LibDevBase*) base, __REG__(a1, struct IORequest*) ior)
 {
 	libdev_device_close(base, ior);
 
@@ -251,7 +270,7 @@ static APTR __saveds __asm device_close(register __a6 struct LibDevBase *base, r
 
 #endif
 
-static APTR __saveds __asm library_close(register __a6 struct LibDevBase *base)
+__SAVE_DS__ __ASM__ static APTR library_close(__REG__(a6, struct LibDevBase*) base)
 {
 	APTR seg_list = NULL;
 
@@ -267,7 +286,7 @@ static APTR __saveds __asm library_close(register __a6 struct LibDevBase *base)
 	return seg_list;
 }
 
-static APTR __saveds __asm library_expunge(register __a6 struct LibDevBase *base)
+__SAVE_DS__ __ASM__ static APTR library_expunge(__REG__(a6, struct LibDevBase*) base)
 {
 	APTR seg_list;
 
