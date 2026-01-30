@@ -57,6 +57,7 @@ dkms.conf
 mhispiaudio.library
 testlib
 audio-test
+spidervis
 *.lnk
 *.gst
 *.mp3
