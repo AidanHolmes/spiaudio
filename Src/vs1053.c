@@ -1397,7 +1397,7 @@ BOOL resetVS1053(struct VSData *dat)
 *******************************************************************************
 *
 */
-struct VSData* initVS1053(LONG priority)
+__SAVE_DS__ struct VSData* initVS1053(LONG priority)
 {
 	struct VSData *dat = NULL ;
 	BOOL success = FALSE ;

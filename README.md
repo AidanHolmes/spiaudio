@@ -8,6 +8,11 @@ This library/device driver provides an MHI interface through the SPIder clockpor
 
 Includes standard VS1053B and VS1063 patches including ADMIX patch for audio passthrough on VS1053.
 
+The driver comes with a visualiser tool (spidervis) providing a VU meter using data from the VS10X3 hardware. This plugs a gap with players like AmigaAmp that cannot display any VU metering when using MHI.
+![visualiser image](SPIAudio/Images/Visualiser.png)
+
+The visualiser works as an AmigaAMP plug-in and stand-alone MHI tool.
+
 ## Setup
 Wire the following together from SPIder to VS10X3. The pin names refer to the Adafruit VS1053 v2 board
 ```
@@ -37,10 +42,27 @@ be used at the same time as the MHI library due to it closing resources that MHI
 Even though this offloads to a decoder, the system will still be busy transferring file data. You may notice slower performance for file IO when playing music. Stopping playback should restore
 the system to normal.
 
+## Spidervis
+Run **spidervis** from Workbench or a shell. 
+If AmigaAMP is already running then the letters **AMP** will display in bold on the UI. If it shows faded in grey then run AmigaAMP and it should change (check you have the latest version of AmigaAMP if it doesn't connect).
+The **MHI** letters will show in bold if you've installed the **mhispiaudio.library** into **LIBS:MHI/** directory. If it shows faded in grey then check you have installed the latest spidervis and mhi library as version differences will not establish connection.
+
+Pressing play on any MP3 in AmigaAMP or Hippoplayer will start the visualiser (as long as apps properly configured to use MHI and the library is installed correctly). Frequency and bit rate should populate in the visualiser. 
+Your hardware will also be detected and shown as either VS1053 or VS1063. 
+
+You can use the **audio-test** command line application to run other compressed formats. When these formats are run then the visualiser will change the right hand column to show the identified format. 
+Note that MP3 is a bit inaccurate if playing older MPEG formats. It's a generalisation of this format with MP3 being typical. 
+
+Spidervis can be opened and closed at any time. It isn't required to play compressed files and just serves to provide info from the hardware. 
+
+You don't need MHI installed at all to use this as plug-in for AmigaAMP. 
+
 ## Known issues
 Popping and clicking on initialisation (maybe nothing can be done on setup).
 MHI library runs the processing task at priority 5 to ensure some activities in Workbench do not interrupt buffer processing, but you can still experience some pauses whilst system is busy.
 I did look at higher priorties but this causes some unexpected issues with signal processing. 
+
+Spidervis may struggle to reserve all the colours it needs, especially on low colour Workbench. Try increasing the colour depth if you experience missing graphics. 
 
 ## Build
 Requires fd2pragma 2.171 [Aminet Download](https://aminet.net/package/dev/misc/fd2pragma).

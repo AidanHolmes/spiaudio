@@ -27,6 +27,8 @@
 #include <inline/mhi_protos.h>
 #endif
 
+#define MAX_DB 96
+
 #define MHIBase appData->mhibase
 
 struct Library *IntuitionBase = NULL;
@@ -51,6 +53,7 @@ struct TextAttr lcd = {
 static void destroyAppData(App *myApp);
 static void closeAmigaAmp(App *app);
 static void doInfo(struct MHIVisAppData *appData);
+static void enableLCDIndicator(struct LCDIndicator *ico, BOOL enable);
 
 struct LCDIndicator{
 	char *text;
@@ -71,7 +74,8 @@ struct LCDIndicator wmaico = {"WMA", FALSE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator wavico = {"WAV", FALSE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator vs53ico = {"VS1053", FALSE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator vs63ico = {"VS1063", FALSE, 0,0,0,0,TRUE, FALSE};
-struct LCDIndicator extico = {"EXT", FALSE, 0,0,0,0,TRUE, FALSE};
+struct LCDIndicator waico = {"AMP", FALSE, 0,0,0,0,TRUE, FALSE};
+struct LCDIndicator mhiico = {"MHI", FALSE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator bpsico = {"bps", TRUE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator freqico = {"Hz", TRUE, 0,0,0,0,TRUE, FALSE};
 struct LCDIndicator bpstxtico = {"", TRUE, 0,0,0,0,TRUE, TRUE};
@@ -134,6 +138,7 @@ struct MHIVisAppData{
 	BOOL refreshMHIData;
 	char frequencyText[10];
 	char rateText[10];
+	UBYTE compressor[MAX_DB+1];
 };
 
 void StrNCpy(char *to, char *from, UWORD maxbuf)
@@ -269,6 +274,7 @@ static BOOL initAmigaAmp(App *app)
 			goto exit;
 		}
 		appData->initialisedAmigaAmp = TRUE;
+		enableLCDIndicator(&waico, TRUE);
 	}	
 	ret = TRUE ;
 exit:
@@ -308,6 +314,7 @@ static void closeAmigaAmp(App *app)
 		GetMsg(appData->pluginReplyPort);
 		
 		appData->initialisedAmigaAmp = FALSE;
+		enableLCDIndicator(&waico, FALSE);
 	}
 }
 
@@ -324,7 +331,6 @@ static void textLCDIndicator(struct MHIVisAppData *appData, struct RastPort *rp,
 	ULONG oldPen = 0;
 
 	oldPen = GetAPen(rp);
-	sizeLCDIndicator(rp, ico);
 	// Erase existing
 	SetAPen(rp, appData->bgPen);
 	if (ico->rjustify){
@@ -382,9 +388,9 @@ static BOOL initGraphics(App *myApp, struct MHIVisAppData *appData)
 	}
 	appData->windowWidth = myApp->mainWnd.appWindow->Width - myApp->mainWnd.appWindow->BorderLeft - myApp->mainWnd.appWindow->BorderRight;
 	appData->windowHeight = myApp->mainWnd.appWindow->Height - myApp->mainWnd.appWindow->BorderTop - myApp->mainWnd.appWindow->BorderBottom;
-	appData->bgPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x7EFFFFFF, 0x8DFFFFFF, 0x6CFFFFFF, 0);
-	appData->vuPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x39FFFFFF, 0x40FFFFFF, 0x31FFFFFF, 0);
-	appData->vuPenFade = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x70FFFFFF, 0x7CFFFFFF, 0x60FFFFFF, 0);
+	appData->bgPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x7EFFFFFF, 0x8DFFFFFF, 0x6CFFFFFF, OBP_Precision, PRECISION_EXACT, 0);
+	appData->vuPen = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x39FFFFFF, 0x40FFFFFF, 0x31FFFFFF, OBP_Precision, PRECISION_EXACT, 0);
+	appData->vuPenFade = ObtainBestPen(myApp->appScreen->ViewPort.ColorMap, 0x70FFFFFF, 0x7CFFFFFF, 0x60FFFFFF, OBP_Precision, PRECISION_EXACT, 0);
 	appData->vuWidth = appData->windowWidth / 7;
 	appData->vuHeight = appData->windowHeight / 2;
 	appData->vuLeftYStart = appData->windowHeight;
@@ -470,9 +476,11 @@ static BOOL initGraphics(App *myApp, struct MHIVisAppData *appData)
 	vs63ico.y = vs53ico.y;
 	
 	// Setup MHI external decoding indicator
-	sizeLCDIndicator(myApp->mainWnd.appWindow->RPort, &extico);
-	extico.x = 10;
-	extico.y = mp3ico.y;
+	sizeLCDIndicator(myApp->mainWnd.appWindow->RPort, &waico);
+	waico.x = 10;
+	waico.y = mp3ico.y;
+	mhiico.x = waico.x;
+	mhiico.y = waico.y + 15;
 	
 	// Setup frequency and rate indicators
 	sizeLCDIndicator(myApp->mainWnd.appWindow->RPort, &freqico);
@@ -532,6 +540,23 @@ static BOOL initGraphics(App *myApp, struct MHIVisAppData *appData)
 	
 	return TRUE ;
 }
+
+void configureCompressor(struct MHIVisAppData *appData)
+{
+	// Define compressor with x^2 + 3x = 4ay, where a=23 for 0-100% scale
+	WORD x = 0, percent = 0;
+	for (;x<MAX_DB+1;x++){
+		percent = ((x*x) - 10*x)/(25*4);
+		if (percent < 0){
+			percent = 0; // clipped
+		}
+		if (percent > 100){
+			percent = 100; // clipped
+		}
+		appData->compressor[x] = (UBYTE)percent;
+	}
+}
+
 ///////////////////////////////////////////
 //
 // initAppData
@@ -554,9 +579,10 @@ static BOOL initAppData(App *myApp, struct MHIVisAppData *appData)
 	appData->initialisedMHI = TRUE ;
   
 	if (!(appData->mhibase = OpenLibrary("LIBS:MHI/mhispiaudio.library", 0))){
-		ShowRequester("Cannot open mhispiaudio.library. This needs to be installed to use the plugin with MHI", "Continue");
+		//ShowRequester("Cannot open mhispiaudio.library. This needs to be installed to use the plugin with MHI", "Continue");
 		appData->initialisedMHI = FALSE;
 	}
+	enableLCDIndicator(&mhiico, appData->initialisedMHI);
 	
 	appData->pluginSig = AllocSignal(-1);
 	appData->infoSig = AllocSignal(-1);
@@ -609,6 +635,7 @@ static BOOL initAppData(App *myApp, struct MHIVisAppData *appData)
 	appData->mhiMsg->io_Message.mn_Length = sizeof(struct IOStdReq) ;
 	appData->mhiMsg->io_Message.mn_Node.ln_Type = NT_MESSAGE;
 
+	configureCompressor(appData);
 	// Setup the screen
 	if (!initGraphics(myApp, appData)){
 		goto exit;
@@ -804,25 +831,25 @@ static void appSigs(struct App *myApp, ULONG sigs)
 		// Only process these if Amiga Amp is around and not just closed
 		if (sigs & (1L << appData->pluginSig)){
 			// Visualisation changes
-			appData->dbLeft = appData->SpecRawL[0] / 682; 
-			appData->dbRight = appData->SpecRawR[0] / 682; 
-			for (i=1;i<512;i++){
-				if (appData->dbLeft < (appData->SpecRawL[i] / 682)){
-					appData->dbLeft = (appData->SpecRawL[i] / 682);
-				}
-				if (appData->dbRight < (appData->SpecRawR[i] / 682)){
-					appData->dbRight = (appData->SpecRawR[i] / 682);
+			if (!appData->initialisedMHI || appData->lastMHIStatus != MHIF_PLAYING){
+				// Don't update left and right if MHI is playing (data will be zero from AmigaAmp)
+				appData->dbLeft = appData->SpecRawL[0] / 682; 
+				appData->dbRight = appData->SpecRawR[0] / 682; 
+				for (i=1;i<512;i++){
+					if (appData->dbLeft < (appData->SpecRawL[i] / 682)){
+						appData->dbLeft = (appData->SpecRawL[i] / 682);
+					}
+					if (appData->dbRight < (appData->SpecRawR[i] / 682)){
+						appData->dbRight = (appData->SpecRawR[i] / 682);
+					}
 				}
 			}
 		}
 		if (sigs & (1L << appData->infoSig)){
 			// New track info
-			
-			// If hardware flag set to External then show MHI in action
-			enableLCDIndicator(&extico, appData->tinfo->Hardware == 3?TRUE:FALSE);
 			sprintf(appData->frequencyText,"%u",appData->tinfo->Frequency);
 			textLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &freqtxtico, appData->frequencyText);
-			sprintf(appData->rateText,"%u",appData->tinfo->Bitrate);
+			sprintf(appData->rateText,"%u",appData->tinfo->Bitrate * 1000);
 			textLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &bpstxtico, appData->rateText);
 		}
 		if (sigs & (1L << appData->windowReplyPort->mp_SigBit)){
@@ -874,9 +901,12 @@ static void appSigs(struct App *myApp, ULONG sigs)
 				appData->lastVis = t2;
 			}
 			
+		}else { // Not playing and no AmigaAmp connected
+			if (!appData->initialisedAmigaAmp){
+				appData->dbLeft = appData->dbRight = 0; // drop VU to zero if not playing
+			}
 		}
 	}
-	
 	
 	// is it time to check AmigaAmp again? Has MHI changed?
 	// Check it still exists and connect if not already connected.
@@ -910,16 +940,16 @@ static void appSigs(struct App *myApp, ULONG sigs)
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &aacico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &vs63ico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &vs53ico);
-	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &extico);
+	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &waico);
+	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &mhiico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &freqico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &bpsico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &freqtxtico);
 	drawLCDIndicator(appData, myApp->mainWnd.appWindow->RPort, &bpstxtico);
 
-	barHeightL = (appData->vuHeight * (UWORD)appData->dbLeft)/ 96;
-	barHeightR = (appData->vuHeight * (UWORD)appData->dbRight)/ 96;
+	barHeightL = (appData->vuHeight * (UWORD)(appData->compressor[appData->dbLeft]))/ 100;
+	barHeightR = (appData->vuHeight * (UWORD)(appData->compressor[appData->dbRight]))/ 100;
 	
-	if(barHeightL > 1){
 		SetAPen(myApp->mainWnd.appWindow->RPort, appData->bgPen);
 		RectFill(myApp->mainWnd.appWindow->RPort, 
 					appData->vuLeftXStart,
@@ -927,6 +957,7 @@ static void appSigs(struct App *myApp, ULONG sigs)
 					appData->vuLeftXStart + appData->vuWidth, 
 					appData->vuLeftYStart - barHeightL);
 
+	if(barHeightL > 1){
 		SetAPen(myApp->mainWnd.appWindow->RPort, appData->vuPen);
 		
 		WritePixelArray8(myApp->mainWnd.appWindow->RPort, 
@@ -938,14 +969,15 @@ static void appSigs(struct App *myApp, ULONG sigs)
 						appData->rpVU);
 		
 	}
-	if(barHeightR > 1){
+	
 		SetAPen(myApp->mainWnd.appWindow->RPort, appData->bgPen);
 		RectFill(myApp->mainWnd.appWindow->RPort, 
 					appData->vuRightXStart,
 					appData->vuRightYStart-appData->vuHeight, 
 					appData->vuRightXStart + appData->vuWidth, 
 					appData->vuRightYStart - barHeightR);
-
+				
+	if(barHeightR > 1){
 		SetAPen(myApp->mainWnd.appWindow->RPort, appData->vuPen);
 		
 		WritePixelArray8(myApp->mainWnd.appWindow->RPort, 
