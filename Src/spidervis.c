@@ -34,6 +34,12 @@
 struct Library *IntuitionBase = NULL;
 struct Library *GfxBase = NULL ;
 
+#define _STR(A) #A
+#define STR(A) _STR(A)
+
+static const char version_string[] =
+  "$VER: spidervis "  STR(LIBDEVMAJOR) "." STR(LIBDEVMINOR) " (" STR(LIBDEVDATE) ")\n";
+
 // SAS/C using compiler instruction to stop CTRL-C handling. These conflict so commented out
 //int  __regargs _CXBRK(void) { return 0; } /* Disable SAS/C Ctrl-C handling */
 //void __regargs __chkabort(void) { ; } /* really */
