@@ -22,9 +22,6 @@
 #include "patches/admix-stereo.plg"
 #endif
 
-#define VERSION_VS1053		4
-#define VERSION_VS1063		6
-
 #define VSOP_WRITE 0x0200
 #define VSOP_READ 0x0300
 
@@ -220,13 +217,13 @@ static void doAdmix(struct VSData *dat, struct VSParameterData *param)
 	if (gain > -3){
 		// This is a status query
 		if (dat->version == VERSION_VS1053){
-			param->actual = (BYTE)readRegister(REG_AICTRL0);
+			param->actual = (UBYTE)readRegister(REG_AICTRL0);
 		}else if (dat->version == VERSION_VS1063){
-			param->actual = (BYTE)readMemoryWord(dat, ADDR63_ADMIX_GAIN);
+			param->actual = (UBYTE)readMemoryWord(dat, ADDR63_ADMIX_GAIN);
 		}
-		param->actual |= dat->admix?0x0100:0x0000;
+		param->actual |= dat->admix?VS_PARAM_ADMIX_ENABLE:VS_PARAM_ADMIX_DISABLE;
 	}else{
-		if ((param->value & 0xFF00) != 0){
+		if ((param->value & 0xFF00) == 0){
 			// Disable
 			if (dat->version == VERSION_VS1053){
 				writeRegister(REG_AIADDR, 0x0F01);
@@ -234,9 +231,9 @@ static void doAdmix(struct VSData *dat, struct VSParameterData *param)
 				if (dat->admix){
 					dat->playMode &= ~VS63PLAYMODE_ADMIX ;
 					writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
-					dat->admix = FALSE ;
 				}
 			}
+			dat->admix = FALSE ;
 		}else{
 			// Enable
 			if (dat->version == VERSION_VS1053){
@@ -246,10 +243,10 @@ static void doAdmix(struct VSData *dat, struct VSParameterData *param)
 				if (!dat->admix){
 					dat->playMode |= VS63PLAYMODE_ADMIX ;
 					writeMemoryWord(dat, ADDR63_PLAYMODE, dat->playMode);
-					dat->admix = TRUE ;
 				}
 				writeMemoryWord(dat, ADDR63_ADMIX_GAIN, (WORD)gain);
 			}
+			dat->admix = TRUE ;
 		}
 		param->actual = param->value;
 	}
@@ -258,7 +255,7 @@ static void doAdmix(struct VSData *dat, struct VSParameterData *param)
 static void doParameter(struct VSData *dat, struct IOStdReq *std)
 {
 	struct VSParameterData *param = NULL;
-	BYTE earspeaker = 0;
+	UWORD earspeaker = 0, reg = 0;
 	
 	param = (struct VSParameterData*)std->io_Data;
 	param->actual = 0; // zero for any errors
@@ -295,11 +292,14 @@ static void doParameter(struct VSData *dat, struct IOStdReq *std)
 			// Don't actually do crossmixing, but can modify headphone setting
 			// Split into the 4 supported modes
 			earspeaker = dat->crossmixing / 25;
-			if (earspeaker >= 4){
+			if (earspeaker > 3){
 				earspeaker = 3;
 			}
 			if (dat->version == 4){
-				writeRegister(REG_MODE, readRegister(REG_MODE) | ((earspeaker & 0x01)?SM_EARSPEAKERLO:0) | ((earspeaker & 0x02)?SM_EARSPEAKERHI:0));
+				reg = readRegister(REG_MODE);
+				reg &= ~(SM_EARSPEAKERLO | SM_EARSPEAKERHI) ; // clear bits
+				reg = ((earspeaker & 0x01)?SM_EARSPEAKERLO:0) | ((earspeaker & 0x02)?SM_EARSPEAKERHI:0) ; // set bits
+				writeRegister(REG_MODE, reg);
 			}
 			if (dat->version == 6){
 				writeMemoryWord(dat, ADDR63_EARSPEAKER, 500 * dat->crossmixing);
@@ -313,7 +313,18 @@ static void doParameter(struct VSData *dat, struct IOStdReq *std)
 			setEqualiser(dat, param);
 			break;
 		case VS_PARAM_ADMIX:
+#if VS1053_AUDIO_ADMIX
+			// Do addmix for all hardware
 			doAdmix(dat, param);
+#else
+			// Only do admix for 1063 with this being built in
+			if (dat->version == VERSION_VS1063){
+				doAdmix(dat, param);
+			}else{
+				dat->admix = FALSE;
+				std->io_Error = IOERR_NOCMD;
+			}
+#endif
 			break;
 		case VS_PARAM_VUMETER:
 			if(dat->version == VERSION_VS1053){
@@ -323,7 +334,47 @@ static void doParameter(struct VSData *dat, struct IOStdReq *std)
 				param->actual *= 3; // align to same range as VS1053 0-96
 			}
 			break;
+		case VS_PARAM_EARSPEAKER:
+			// Parameter value is just 4 levels 0-3. 
+			param->actual = param->value;
+			if (param->actual > 3){ // Read the value of ear speaker
+				if (dat->version == 4){
+					reg = readRegister(REG_MODE) & (SM_EARSPEAKERLO | SM_EARSPEAKERHI);
+					param->actual = ((reg & SM_EARSPEAKERHI) >> 6) | ((reg & SM_EARSPEAKERLO) >> 4) ; 
+				}
+				if (dat->version == 6){
+					reg = readMemoryWord(dat, ADDR63_EARSPEAKER);
+					if (reg >= 50000){
+						param->actual = 3;
+					}else if(reg >= 38000){
+						param->actual = 2;
+					}else if(reg >= 12000){
+						param->actual = 1;
+					}else{
+						param->actual = 0;
+					}
+				}
+			}else{ // Write ear speaker
+				if (dat->version == 4){
+					reg = readRegister(REG_MODE);
+					reg &= ~(SM_EARSPEAKERLO | SM_EARSPEAKERHI) ; // clear bits
+					reg |= ((param->actual & 0x01)?SM_EARSPEAKERLO:0) | ((param->actual & 0x02)?SM_EARSPEAKERHI:0) ; // set bits
+					writeRegister(REG_MODE, reg);
+				}
+				if (dat->version == 6){
+					// Levels taken from 1063 specification examples. Assume these align to 1053 levels.
+					switch (param->actual){
+						case 1: earspeaker = 12000; break; // Suited for listening to normal musical scores with headphones, very subtle.
+						case 2: earspeaker = 38000; break; // Suited for listening to normal musical scores with headphones, moves sound source further away than minimal.
+						case 3: earspeaker = 50000; break; // Suited for old or ’dry’ recordings.
+						default: earspeaker = 0; // Best option when listening through loudspeakers or if the audio to be played contains binaural preprocessing.
+					}
+					writeMemoryWord(dat, ADDR63_EARSPEAKER, earspeaker);
+				}
+			}
+			break;
 		default:
+			std->io_Error = IOERR_NOCMD;
 			break;
 	}
 }
@@ -1327,26 +1378,35 @@ BOOL resetVS1053(struct VSData *dat)
 	// Set modes
 	newMode = SM_SDISHARE | SM_SDINEW;
 #if VS1053_AUDIO_ADMIX
-	newMode |= SM_LINE1; // enable line-in
+	if(dat->version == VERSION_VS1053){
+		newMode |= SM_LINE1; // enable line-in
+	}
 #endif
+	if (dat->version == VERSION_VS1063){ // This is built into 1063 so enable line-in for Admix
+		newMode |= SM_LINE1;
+	}
 #if VS1053_AUDIO_MPEG12
 	newMode |= SM_LAYER12;
 #endif
 	writeRegister(REG_MODE, readRegister(REG_MODE) | newMode);
 	
+	dat->admix = FALSE;
 #if VS1053_AUDIO_ADMIX
 	if(dat->version == VERSION_VS1053){
 		// Set mix gain to -3db
 		writeRegister(REG_AICTRL0, 0xFFFd);
 		writeRegister(REG_AIADDR, 0x0F00);
+		dat->admix = TRUE;
 	}
+#endif
 	if (dat->version == VERSION_VS1063){
 		writeMemoryWord(dat, ADDR63_ADMIX_GAIN, 0xFFFd); // -3db
 		writeMemoryWord(dat, ADDR63_ADMIX_CONFIG, VS63ADMIXER_RATE48 | VS63ADMIXER_MODESTEREO);
 		dat->playMode |= VS63PLAYMODE_ADMIX;
+		dat->admix = TRUE;
 	}
-	dat->admix = TRUE;
-#endif
+	
+
 
 	// Enable correct play mode for VS1063
 	if (dat->version == VERSION_VS1063){

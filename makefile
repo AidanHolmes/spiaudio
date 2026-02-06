@@ -2,8 +2,8 @@ AMINETNAME = SPIAudio
 DEVICENAME = mhispiaudio
 # Version - these values are mastered here and overwrite the generated values in makefiles for Debug and Release
 LIBDEVMAJOR = 1
-LIBDEVMINOR = 5
-LIBDEVDATE = "31.01.2026"
+LIBDEVMINOR = 6
+LIBDEVDATE = "06.02.2026"
 LIBDEVNAME = $(DEVICENAME).library
 
 LHADIR = $(AMINETNAME)
@@ -50,7 +50,7 @@ clean:
 		smake clean LIBDEVNAME=$(LIBDEVNAME) DEVICENAME=$(DEVICENAME)
 		cd /
 		<
-	delete $(AMINETNAME).lha $(AMINETNAME)/$(LIBDEVNAME) $(AMINETNAME)/spidervis $(AMINETNAME)/Include/C/pragma/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/C/proto/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/Assembly/lvo/\#? $(AMINETNAME)/FD/\#?
+	- delete $(AMINETNAME).lha $(AMINETNAME)/$(LIBDEVNAME) $(AMINETNAME)/spidervis $(AMINETNAME)/Include/C/pragma/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/C/proto/\#? $(AMINETNAME)/Include/C/inline/\#? $(AMINETNAME)/Include/Assembly/lvo/\#? $(AMINETNAME)/FD/\#?
 	
 $(RELEASE): makefile.master makefile
 	copy makefile.master $(RELEASE)

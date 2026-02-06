@@ -5,7 +5,7 @@
 
 
 /*
-**	$VER: spiaudio_protos.h 1.0 (31.01.2026)
+**	$VER: spiaudio_protos.h 1.0 (06.02.2026)
 **
 **	C prototypes. For use with 32 bit integers only.
 **

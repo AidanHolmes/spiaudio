@@ -1,5 +1,5 @@
 # SPIAudio
-SPI MHI library 1.5 for the VS10X3 SPIder device. Now supports both VS1053 and VS1063 chipsets. 
+SPI MHI library 1.6 for the VS10X3 SPIder device. Now supports both VS1053 and VS1063 chipsets. 
 VS1063 offers some improved format support, but drops MIDI (no implementation in driver anyway) and MPEG layer 1. It has a slight boost in communication speeds with SPIder.
 The most noticable is the support for 5 band EQ in AmigaAmp. VS1053 only support bass and treble at 64 and 16k, and it's a bit weak. VS1063 kicks in across bands 64, 250, 1k, 4k and 16k.
 
@@ -43,7 +43,7 @@ Even though this offloads to a decoder, the system will still be busy transferri
 the system to normal.
 
 ## Spidervis
-Run **spidervis** from Workbench or a shell. 
+Run **spidervis** from Workbench or a shell. Works on V39 (3.0) and later kickstarts. 
 If AmigaAMP is already running then the letters **AMP** will display in bold on the UI. If it shows faded in grey then run AmigaAMP and it should change (check you have the latest version of AmigaAMP if it doesn't connect).
 The **MHI** letters will show in bold if you've installed the **mhispiaudio.library** into **LIBS:MHI/** directory. If it shows faded in grey then check you have installed the latest spidervis and mhi library as version differences will not establish connection.
 
@@ -57,12 +57,19 @@ Spidervis can be opened and closed at any time. It isn't required to play compre
 
 You don't need MHI installed at all to use this as plug-in for AmigaAMP. 
 
+There are 2 control buttons at the bottom of the screen. The left controls the VS10X3 headphone settings with 3 levels supported (or off for speaker playback).
+The other button enables and disables the Admix audio passthrough. Admix is enabled by default but could introduce noise if disconnected. Turning off may improve noise levels.
+
 ## Known issues
 Popping and clicking on initialisation (maybe nothing can be done on setup).
 MHI library runs the processing task at priority 5 to ensure some activities in Workbench do not interrupt buffer processing, but you can still experience some pauses whilst system is busy.
 I did look at higher priorties but this causes some unexpected issues with signal processing. 
 
-Spidervis may struggle to reserve all the colours it needs, especially on low colour Workbench. Try increasing the colour depth if you experience missing graphics. 
+Spidervis may struggle to reserve all the colours it needs, especially on low colour Workbench. 
+Try increasing the colour depth if you experience missing graphics. I will attempt to detect this at some point, but functionality taking priority.
+
+Spidervis may sometimes hang when AmigaAMP is closed and it is running. CTRL-C is sent from AmigaAMP and there's still some code that responds, despite attempting mitigation in VBCC and SAS/C. 
+Run from icon seems more stable and works most of the time when AmigaAMP is closed.
 
 ## Build
 Requires fd2pragma 2.171 [Aminet Download](https://aminet.net/package/dev/misc/fd2pragma).

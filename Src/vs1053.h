@@ -1,4 +1,4 @@
-/* Copyright 2025 Aidan Holmes
+/* Copyright 2026 Aidan Holmes
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,6 +44,23 @@
 #define VS_PARAM_MIDHIGH	7
 #define VS_PARAM_ADMIX		8		// Not in MHI params, but for advanced enable/disable and gain (top byte for on/off, lower for gain)
 #define VS_PARAM_VUMETER	9		// Not in MHI params, raw vuMeter return from VS10XX memory
+#define VS_PARAM_EARSPEAKER	10		// Not in MHI params. Set configuration for earspeaker spatial settings
+
+// Admix param helper macros
+#define VS_PARAM_ADMIX_ENABLE  	0x0100			// OR with gain value to enable
+#define VS_PARAM_ADMIX_DISABLE 	0x0000			// Disables Admix
+#define VS_PARAM_ADMIX_GAIN(x) 	(x & 0x00FF) 	// -3 to -31db gain values - OR with VS_PARAM_ADMIX_ENABLE to activate
+#define VS_PARAM_ADMIX_READ		0x0100			// Specify as param value to receive actual setting from chip registers/memory.
+
+// Earspeaker param value helper macros
+#define VS_PARAM_EARSPEAKER_OFF		0
+#define VS_PARAM_EARSPEAKER_MINIMAL	1
+#define VS_PARAM_EARSPEAKER_NORMAL	2
+#define VS_PARAM_EARSPEAKER_EXTREME	3
+
+// Hardware version identifiers
+#define VERSION_VS1053		4
+#define VERSION_VS1063		6
 
 // This can be overridden at compile time
 // to allow or remove MPEG layer 1 and 2 decoding
@@ -115,6 +132,7 @@ struct VSData
 	UBYTE panning; // 0 full left 50 centre, 100 full right
 	UBYTE volume; // 0 to 100%
 	UBYTE crossmixing; // 0 to 100
+	UBYTE earspeaker; // 0 to 3 levels - default is 0
 	UBYTE bass;
 	UBYTE treb;
 	UBYTE version;
